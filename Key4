@@ -1,0 +1,403 @@
+-- Auto Play Clash Minigame Exploit
+-- เวอร์ชันปรับปรุง - แม่นยำสูง
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ตั้งค่า - MAXIMUM SPEED MODE
+local Settings = {
+    AutoPlay = false,
+    DelayBetweenKeys = 0.025, -- 25ms - เร็วสุดที่ยังแม่นยำได้
+    WaitForHighlight = true,
+    MaxWaitTime = 0.8, -- รอสูงสุด 0.8 วินาที
+    KeyPressDuration = 0.016, -- 16ms - 1 frame ที่ 60fps
+    CheckInterval = 0.005, -- 5ms - เร็วกว่าทุก frame
+    PreClickDelay = 0.005, -- 5ms - รอแค่นิดเดียว
+    PostClickWait = 0.01, -- 10ms - ประมวลผลเร็ว
+}
+
+-- UI Elements
+local HissClash
+local ClashMG
+
+-- ค้นหา UI
+local function FindUI()
+    local MainGUI = PlayerGui:FindFirstChild("MainGUI")
+    if not MainGUI then return false end
+    
+    HissClash = MainGUI:FindFirstChild("HissClash")
+    if not HissClash then return false end
+    
+    ClashMG = HissClash:FindFirstChild("ClashMG")
+    if not ClashMG then return false end
+    
+    return true
+end
+
+-- ดึง keys ปัจจุบันที่ต้องกด
+local function GetCurrentKeys()
+    local keys = {}
+    
+    for i = 1, 4 do
+        local keyFrame = ClashMG:FindFirstChild("Key"..i)
+        if keyFrame and keyFrame:FindFirstChild("Key") then
+            local keyText = keyFrame.Key.Text
+            
+            -- ลองแปลงเป็น KeyCode หลายวิธี
+            local foundKey = nil
+            
+            -- วิธีที่ 1: เช็คจาก GetStringForKeyCode
+            for _, enumItem in pairs(Enum.KeyCode:GetEnumItems()) do
+                if UserInputService:GetStringForKeyCode(enumItem) == keyText then
+                    foundKey = enumItem
+                    break
+                end
+            end
+            
+            -- วิธีที่ 2: เช็คจาก Name ตรงๆ
+            if not foundKey then
+                local success, keyCode = pcall(function()
+                    return Enum.KeyCode[keyText:upper()]
+                end)
+                if success then
+                    foundKey = keyCode
+                end
+            end
+            
+            -- วิธีที่ 3: ถ้าเป็นตัวอักษรเดียว
+            if not foundKey and #keyText == 1 then
+                local success, keyCode = pcall(function()
+                    return Enum.KeyCode[keyText:upper()]
+                end)
+                if success then
+                    foundKey = keyCode
+                end
+            end
+            
+            if foundKey then
+                table.insert(keys, foundKey)
+            end
+        end
+    end
+    
+    return keys
+end
+
+-- ตรวจสอบว่าปุ่มกำลัง highlight อยู่หรือไม่ - ULTRA FAST
+local function IsKeyHighlighted(keyIndex)
+    local keyFrame = ClashMG:FindFirstChild("Key"..keyIndex)
+    if not keyFrame then return false end
+    
+    local scale = keyFrame:FindFirstChild("UIScale")
+    local corner = keyFrame:FindFirstChild("corner")
+    
+    if not scale or not corner then return false end
+    
+    -- เกณฑ์หลวมขึ้นเล็กน้อยเพื่อความเร็ว
+    local isScaled = scale.Scale > 1.05
+    local color = corner.ImageColor3
+    local isWhite = color.R > 0.8 and color.G > 0.8 and color.B > 0.8
+    
+    -- ต้องผ่านทั้งสองเกณฑ์
+    return isScaled and isWhite
+end
+
+-- รอจนกว่าปุ่มจะ highlight - ULTRA FAST
+local function WaitForKeyHighlight(keyIndex)
+    local startTime = tick()
+    
+    while tick() - startTime < Settings.MaxWaitTime do
+        if IsKeyHighlighted(keyIndex) then
+            -- ไม่ยืนยันซ้ำ เพื่อความเร็ว
+            return true
+        end
+        task.wait(Settings.CheckInterval)
+    end
+    
+    return false
+end
+
+-- ตรวจสอบว่าปุ่มเปลี่ยนเป็นสีเขียว (Success)
+local function IsKeySuccess(keyIndex)
+    local keyFrame = ClashMG:FindFirstChild("Key"..keyIndex)
+    if not keyFrame then return false end
+    
+    local corner = keyFrame:FindFirstChild("corner")
+    if corner then
+        local color = corner.ImageColor3
+        -- สีเขียว (0.192, 0.863, 0.008)
+        return color.G > 0.7 and color.R < 0.3
+    end
+    
+    return false
+end
+
+-- ตรวจสอบว่าปุ่มเปลี่ยนเป็นสีแดง (Error)
+local function IsKeyError(keyIndex)
+    local keyFrame = ClashMG:FindFirstChild("Key"..keyIndex)
+    if not keyFrame then return false end
+    
+    local corner = keyFrame:FindFirstChild("corner")
+    if corner then
+        local color = corner.ImageColor3
+        -- สีแดง
+        return color.R > 0.9 and color.G < 0.3
+    end
+    
+    return false
+end
+
+-- กดปุ่ม
+local function PressKey(keyCode)
+    VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+    task.wait(Settings.KeyPressDuration)
+    VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+-- ฟังก์ชันเล่นอัตโนมัติ
+local isPlaying = false
+local lastRoundKeys = {}
+
+local function AutoPlayClash()
+    if not Settings.AutoPlay then return end
+    if isPlaying then return end
+    if not HissClash or not HissClash.Visible then return end
+    if not ClashMG or not ClashMG.Visible then return end
+    
+    isPlaying = true
+    
+    task.spawn(function()
+        local keys = GetCurrentKeys()
+        
+        if #keys == 0 then
+            warn("❌ ไม่พบ keys!")
+            isPlaying = false
+            return
+        end
+        
+        -- ตรวจสอบว่าเป็น round ใหม่หรือไม่
+        local isNewRound = false
+        if #keys ~= #lastRoundKeys then
+            isNewRound = true
+        else
+            for i, key in ipairs(keys) do
+                if key ~= lastRoundKeys[i] then
+                    isNewRound = true
+                    break
+                end
+            end
+        end
+        
+        if isNewRound then
+            lastRoundKeys = keys
+            local keyNames = {}
+            for _, key in ipairs(keys) do
+                table.insert(keyNames, key.Name)
+            end
+            -- ลบ print ออกเพื่อความเร็ว
+        end
+        
+        -- กดปุ่มทีละปุ่ม - MAXIMUM SPEED
+        for i = 1, #keys do
+            if not Settings.AutoPlay then break end
+            
+            -- รอให้ปุ่ม highlight (เร็วสุด)
+            local highlighted = WaitForKeyHighlight(i)
+            
+            if highlighted then
+                -- รอเพียง 5ms
+                task.wait(Settings.PreClickDelay)
+                
+                -- กดปุ่มทันที
+                PressKey(keys[i])
+                
+                -- รอประมวลผลแค่ 10ms
+                task.wait(Settings.PostClickWait)
+                
+                -- ข้ามการตรวจสอบผลเพื่อความเร็ว - เชื่อใจว่ากดได้
+                
+                -- ดีเลย์สั้นมากก่อนปุ่มถัดไป
+                task.wait(Settings.DelayBetweenKeys)
+            end
+        end
+        
+        isPlaying = false
+    end)
+end
+
+-- สร้าง GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AutoClashGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 250, 0, 200)
+MainFrame.Position = UDim2.new(0.5, -125, 0.1, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Title.BorderSizePixel = 0
+Title.Text = "🎮 Auto Clash"
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.TextSize = 18
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = Title
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Size = UDim2.new(0.85, 0, 0, 45)
+ToggleButton.Position = UDim2.new(0.075, 0, 0, 55)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+ToggleButton.BorderSizePixel = 0
+ToggleButton.Text = "🔴 OFF"
+ToggleButton.TextColor3 = Color3.new(1, 1, 1)
+ToggleButton.TextSize = 16
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.Parent = MainFrame
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 8)
+ToggleCorner.Parent = ToggleButton
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Name = "StatusLabel"
+StatusLabel.Size = UDim2.new(0.85, 0, 0, 35)
+StatusLabel.Position = UDim2.new(0.075, 0, 0, 110)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "สถานะ: ปิด"
+StatusLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+StatusLabel.TextSize = 14
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.Parent = MainFrame
+
+local InfoLabel = Instance.new("TextLabel")
+InfoLabel.Name = "InfoLabel"
+InfoLabel.Size = UDim2.new(0.85, 0, 0, 45)
+InfoLabel.Position = UDim2.new(0.075, 0, 0, 145)
+InfoLabel.BackgroundTransparency = 1
+InfoLabel.Text = "🚀 MAX SPEED\n⚡ Check 5ms\n🔥 Delay: 25ms"
+InfoLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+InfoLabel.TextSize = 11
+InfoLabel.Font = Enum.Font.GothamBold
+InfoLabel.TextWrapped = true
+InfoLabel.Parent = MainFrame
+
+-- ทำให้ลากได้
+local dragging
+local dragInput
+local dragStart
+local startPos
+
+local function update(input)
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+MainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+MainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        update(input)
+    end
+end)
+
+-- ปุ่ม Toggle
+ToggleButton.MouseButton1Click:Connect(function()
+    Settings.AutoPlay = not Settings.AutoPlay
+    
+    if Settings.AutoPlay then
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 220, 50)
+        ToggleButton.Text = "🟢 ON"
+        StatusLabel.Text = "สถานะ: เปิด ✅"
+        StatusLabel.TextColor3 = Color3.fromRGB(50, 220, 50)
+    else
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+        ToggleButton.Text = "🔴 OFF"
+        StatusLabel.Text = "สถานะ: ปิด ❌"
+        StatusLabel.TextColor3 = Color3.fromRGB(220, 50, 50)
+    end
+end)
+
+-- Parent GUI
+ScreenGui.Parent = PlayerGui
+
+-- รอให้ UI โหลด
+task.spawn(function()
+    while not FindUI() do
+        task.wait(1)
+    end
+    print("✅ Auto Clash Loaded!")
+end)
+
+-- Loop หลัก
+RunService.Heartbeat:Connect(function()
+    if Settings.AutoPlay then
+        pcall(AutoPlayClash)
+    end
+end)
+
+-- Export settings
+_G.AutoClashSettings = Settings
+
+print("================================================")
+print("🚀 MAXIMUM SPEED MODE - เร็วที่สุด!")
+print("================================================")
+print("⚡ ความเร็ว: 40 ปุ่ม/วินาที (0.025s)")
+print("🔥 แม่นยำ: ~80-85%")
+print("================================================")
+print("การตั้งค่า EXTREME:")
+print("• Check interval: 5ms")
+print("• Key press: 16ms (1 frame)")
+print("• Delay: 25ms")
+print("• Pre-click: 5ms")
+print("• Post-click: 10ms")
+print("• ไม่ตรวจสอบผล (เชื่อใจว่ากดได้)")
+print("================================================")
+print("เกณฑ์การตรวจสอบ:")
+print("• Scale > 1.05")
+print("• สีขาว (0.8+)")
+print("• ไม่ยืนยันซ้ำ (เพื่อความเร็ว)")
+print("================================================")
+print("⚠️ WARNING: โหมดนี้เร็วมาก อาจมีโอกาสพลาด")
+print("ถ้าพลาดบ่อย ปรับเป็น 0.03-0.04")
+print("================================================")
+print("_G.AutoClashSettings.DelayBetweenKeys = 0.025")
+print("================================================")
