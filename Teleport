@@ -1,0 +1,485 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local player = Players.LocalPlayer
+
+local function getCharacter()
+    return player.Character or player.CharacterAdded:Wait()
+end
+
+local categories = {
+    {
+        name = "NPCs",
+        icon = "👤",
+        items = {
+            "Axel Blaze",
+            "Black Market",
+            "Hado",
+            "Inazuma Shop",
+            "James",
+            "Jude Sharp",
+            "Military Dealer",
+            "Sweets Shop"
+        },
+        folderPath = "NPCs"
+    },
+    {
+        name = "Drops",
+        icon = "📦",
+        items = {
+            "Items",
+            "Regions"
+        },
+        folderPath = "Drops"
+    },
+    {
+        name = "Zones",
+        icon = "🗺️",
+        items = {
+            "Zone 1",
+            "Zone 2",
+            "Zone 3",
+            "Zone 4",
+            "Zone 5"
+        },
+        positions = {
+            ["Zone 1"] = Vector3.new(785.345, 33.106, -529.224),
+            ["Zone 2"] = Vector3.new(137.689, 27.082, -666.824),
+            ["Zone 3"] = Vector3.new(440.703, 27.042, -341.28),
+            ["Zone 4"] = Vector3.new(580.259, 97.602, -499.072),
+            ["Zone 5"] = Vector3.new(826.244, 27.718, -269.372)
+        }
+    }
+}
+
+local function findPosition(folderName, itemName, customPositions)
+    if customPositions and customPositions[itemName] then
+        return customPositions[itemName]
+    end
+    
+    local folder = workspace:FindFirstChild(folderName)
+    if not folder then return nil end
+    
+    if folderName == "NPCs" then
+        for _, npc in pairs(folder:GetChildren()) do
+            if npc.Name == itemName or npc.Name:find(itemName) then
+                local hrp = npc:FindFirstChild("HumanoidRootPart") or npc:FindFirstChildWhichIsA("BasePart")
+                if hrp then
+                    return hrp.Position
+                end
+            end
+        end
+    else
+        local subFolder = folder:FindFirstChild(itemName)
+        if subFolder then
+            for _, child in pairs(subFolder:GetDescendants()) do
+                if child:IsA("BasePart") then
+                    return child.Position
+                end
+            end
+        end
+    end
+    
+    return nil
+end
+
+local function teleportTo(position)
+    local character = getCharacter()
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if hrp and position then
+        hrp.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
+    end
+end
+
+local function createUI()
+    local oldGui = player.PlayerGui:FindFirstChild("ModernTeleport")
+    if oldGui then oldGui:Destroy() end
+    
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "ModernTeleport"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = player.PlayerGui
+    
+    -- Main Container
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 380, 0, 520)
+    mainFrame.Position = UDim2.new(0.5, -190, 0.5, -260)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    mainFrame.Parent = screenGui
+    
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 16)
+    mainCorner.Parent = mainFrame
+    
+    -- Gradient Overlay
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(25, 25, 40)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 15, 25))
+    }
+    gradient.Rotation = 45
+    gradient.Parent = mainFrame
+    
+    -- Top Accent Bar
+    local accentBar = Instance.new("Frame")
+    accentBar.Size = UDim2.new(1, 0, 0, 4)
+    accentBar.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+    accentBar.BorderSizePixel = 0
+    accentBar.Parent = mainFrame
+    
+    local accentGradient = Instance.new("UIGradient")
+    accentGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 200, 255)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 100, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 100, 200))
+    }
+    accentGradient.Parent = accentBar
+    
+    local accentCorner = Instance.new("UICorner")
+    accentCorner.CornerRadius = UDim.new(0, 16)
+    accentCorner.Parent = accentBar
+    
+    -- Header
+    local header = Instance.new("Frame")
+    header.Size = UDim2.new(1, 0, 0, 70)
+    header.Position = UDim2.new(0, 0, 0, 0)
+    header.BackgroundTransparency = 1
+    header.Parent = mainFrame
+    
+    local iconBg = Instance.new("Frame")
+    iconBg.Size = UDim2.new(0, 50, 0, 50)
+    iconBg.Position = UDim2.new(0, 20, 0, 15)
+    iconBg.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+    iconBg.BorderSizePixel = 0
+    iconBg.Parent = header
+    
+    local iconCorner = Instance.new("UICorner")
+    iconCorner.CornerRadius = UDim.new(0, 12)
+    iconCorner.Parent = iconBg
+    
+    local iconGradient = Instance.new("UIGradient")
+    iconGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 200, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 100, 255))
+    }
+    iconGradient.Rotation = 45
+    iconGradient.Parent = iconBg
+    
+    local icon = Instance.new("TextLabel")
+    icon.Size = UDim2.new(1, 0, 1, 0)
+    icon.BackgroundTransparency = 1
+    icon.Text = "⚡"
+    icon.TextColor3 = Color3.new(1, 1, 1)
+    icon.TextSize = 28
+    icon.Font = Enum.Font.GothamBold
+    icon.Parent = iconBg
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(0, 200, 0, 30)
+    titleLabel.Position = UDim2.new(0, 80, 0, 15)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "Quick Teleport"
+    titleLabel.TextColor3 = Color3.fromRGB(240, 240, 255)
+    titleLabel.TextSize = 22
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = header
+    
+    local subtitle = Instance.new("TextLabel")
+    subtitle.Size = UDim2.new(0, 200, 0, 20)
+    subtitle.Position = UDim2.new(0, 80, 0, 45)
+    subtitle.BackgroundTransparency = 1
+    subtitle.Text = "Fast travel anywhere"
+    subtitle.TextColor3 = Color3.fromRGB(150, 150, 180)
+    subtitle.TextSize = 13
+    subtitle.Font = Enum.Font.Gotham
+    subtitle.TextXAlignment = Enum.TextXAlignment.Left
+    subtitle.Parent = header
+    
+    -- Close Button
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 45, 0, 45)
+    closeBtn.Position = UDim2.new(1, -60, 0, 18)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(255, 70, 90)
+    closeBtn.BorderSizePixel = 0
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = Color3.new(1, 1, 1)
+    closeBtn.TextSize = 20
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.AutoButtonColor = false
+    closeBtn.Parent = header
+    
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 12)
+    closeCorner.Parent = closeBtn
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+            Size = UDim2.new(0, 0, 0, 0)
+        }):Play()
+        wait(0.3)
+        screenGui:Destroy()
+    end)
+    
+    closeBtn.MouseEnter:Connect(function()
+        TweenService:Create(closeBtn, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(255, 100, 120),
+            Size = UDim2.new(0, 48, 0, 48)
+        }):Play()
+    end)
+    
+    closeBtn.MouseLeave:Connect(function()
+        TweenService:Create(closeBtn, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(255, 70, 90),
+            Size = UDim2.new(0, 45, 0, 45)
+        }):Play()
+    end)
+    
+    -- Content Area
+    local contentFrame = Instance.new("Frame")
+    contentFrame.Size = UDim2.new(1, -30, 1, -90)
+    contentFrame.Position = UDim2.new(0, 15, 0, 75)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.Parent = mainFrame
+    
+    local scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Size = UDim2.new(1, 0, 1, 0)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.BorderSizePixel = 0
+    scrollFrame.ScrollBarThickness = 4
+    scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 200, 255)
+    scrollFrame.Parent = contentFrame
+    
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 10)
+    listLayout.Parent = scrollFrame
+    
+    -- Create Categories
+    for _, category in ipairs(categories) do
+        local categoryContainer = Instance.new("Frame")
+        categoryContainer.Size = UDim2.new(1, -10, 0, 60)
+        categoryContainer.BackgroundTransparency = 1
+        categoryContainer.Parent = scrollFrame
+        
+        local categoryBtn = Instance.new("TextButton")
+        categoryBtn.Size = UDim2.new(1, 0, 0, 60)
+        categoryBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+        categoryBtn.BorderSizePixel = 0
+        categoryBtn.Text = ""
+        categoryBtn.AutoButtonColor = false
+        categoryBtn.Parent = categoryContainer
+        
+        local catCorner = Instance.new("UICorner")
+        catCorner.CornerRadius = UDim.new(0, 12)
+        catCorner.Parent = categoryBtn
+        
+        local catGradient = Instance.new("UIGradient")
+        catGradient.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 30, 50)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 25, 40))
+        }
+        catGradient.Rotation = 90
+        catGradient.Parent = categoryBtn
+        
+        -- Category Icon
+        local catIcon = Instance.new("TextLabel")
+        catIcon.Size = UDim2.new(0, 40, 0, 40)
+        catIcon.Position = UDim2.new(0, 15, 0, 10)
+        catIcon.BackgroundTransparency = 1
+        catIcon.Text = category.icon
+        catIcon.TextSize = 24
+        catIcon.Parent = categoryBtn
+        
+        -- Category Name
+        local catName = Instance.new("TextLabel")
+        catName.Size = UDim2.new(0, 150, 0, 25)
+        catName.Position = UDim2.new(0, 65, 0, 8)
+        catName.BackgroundTransparency = 1
+        catName.Text = category.name
+        catName.TextColor3 = Color3.fromRGB(230, 230, 255)
+        catName.TextSize = 18
+        catName.Font = Enum.Font.GothamBold
+        catName.TextXAlignment = Enum.TextXAlignment.Left
+        catName.Parent = categoryBtn
+        
+        -- Item Count
+        local itemCount = Instance.new("TextLabel")
+        itemCount.Size = UDim2.new(0, 150, 0, 18)
+        itemCount.Position = UDim2.new(0, 65, 0, 35)
+        itemCount.BackgroundTransparency = 1
+        itemCount.Text = #category.items .. " locations"
+        itemCount.TextColor3 = Color3.fromRGB(130, 130, 160)
+        itemCount.TextSize = 12
+        itemCount.Font = Enum.Font.Gotham
+        itemCount.TextXAlignment = Enum.TextXAlignment.Left
+        itemCount.Parent = categoryBtn
+        
+        -- Arrow
+        local arrow = Instance.new("TextLabel")
+        arrow.Size = UDim2.new(0, 30, 0, 30)
+        arrow.Position = UDim2.new(1, -40, 0.5, -15)
+        arrow.BackgroundTransparency = 1
+        arrow.Text = "›"
+        arrow.TextColor3 = Color3.fromRGB(100, 200, 255)
+        arrow.TextSize = 28
+        arrow.Font = Enum.Font.GothamBold
+        arrow.Rotation = 90
+        arrow.Parent = categoryBtn
+        
+        -- Items Container
+        local itemsFrame = Instance.new("Frame")
+        itemsFrame.Size = UDim2.new(1, 0, 0, 0)
+        itemsFrame.Position = UDim2.new(0, 0, 0, 65)
+        itemsFrame.BackgroundTransparency = 1
+        itemsFrame.Visible = false
+        itemsFrame.Parent = categoryContainer
+        
+        local itemsLayout = Instance.new("UIListLayout")
+        itemsLayout.Padding = UDim.new(0, 6)
+        itemsLayout.Parent = itemsFrame
+        
+        -- Create Items
+        for _, itemName in ipairs(category.items) do
+            local itemBtn = Instance.new("TextButton")
+            itemBtn.Size = UDim2.new(1, -20, 0, 48)
+            itemBtn.Position = UDim2.new(0, 10, 0, 0)
+            itemBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+            itemBtn.BorderSizePixel = 0
+            itemBtn.Text = ""
+            itemBtn.AutoButtonColor = false
+            itemBtn.Parent = itemsFrame
+            
+            local itemCorner = Instance.new("UICorner")
+            itemCorner.CornerRadius = UDim.new(0, 10)
+            itemCorner.Parent = itemBtn
+            
+            local itemLabel = Instance.new("TextLabel")
+            itemLabel.Size = UDim2.new(1, -50, 1, 0)
+            itemLabel.Position = UDim2.new(0, 20, 0, 0)
+            itemLabel.BackgroundTransparency = 1
+            itemLabel.Text = itemName
+            itemLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+            itemLabel.TextSize = 15
+            itemLabel.Font = Enum.Font.Gotham
+            itemLabel.TextXAlignment = Enum.TextXAlignment.Left
+            itemLabel.Parent = itemBtn
+            
+            local teleportIcon = Instance.new("TextLabel")
+            teleportIcon.Size = UDim2.new(0, 30, 0, 30)
+            teleportIcon.Position = UDim2.new(1, -35, 0.5, -15)
+            teleportIcon.BackgroundTransparency = 1
+            teleportIcon.Text = "→"
+            teleportIcon.TextColor3 = Color3.fromRGB(100, 200, 255)
+            teleportIcon.TextSize = 18
+            teleportIcon.Font = Enum.Font.GothamBold
+            teleportIcon.Parent = itemBtn
+            
+            itemBtn.MouseEnter:Connect(function()
+                TweenService:Create(itemBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(40, 40, 65)
+                }):Play()
+                TweenService:Create(teleportIcon, TweenInfo.new(0.2), {
+                    Position = UDim2.new(1, -30, 0.5, -15)
+                }):Play()
+            end)
+            
+            itemBtn.MouseLeave:Connect(function()
+                TweenService:Create(itemBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+                }):Play()
+                TweenService:Create(teleportIcon, TweenInfo.new(0.2), {
+                    Position = UDim2.new(1, -35, 0.5, -15)
+                }):Play()
+            end)
+            
+            itemBtn.MouseButton1Click:Connect(function()
+                local pos = findPosition(category.folderPath, itemName, category.positions)
+                if pos then
+                    teleportTo(pos)
+                    itemLabel.Text = "✓ Teleported!"
+                    TweenService:Create(itemBtn, TweenInfo.new(0.3), {
+                        BackgroundColor3 = Color3.fromRGB(50, 180, 100)
+                    }):Play()
+                    wait(1.5)
+                    itemLabel.Text = itemName
+                    TweenService:Create(itemBtn, TweenInfo.new(0.3), {
+                        BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+                    }):Play()
+                else
+                    itemLabel.Text = "✗ Not Found"
+                    TweenService:Create(itemBtn, TweenInfo.new(0.3), {
+                        BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+                    }):Play()
+                    wait(1.5)
+                    itemLabel.Text = itemName
+                    TweenService:Create(itemBtn, TweenInfo.new(0.3), {
+                        BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+                    }):Play()
+                end
+            end)
+        end
+        
+        local function updateSizes()
+            local itemsHeight = itemsFrame.Visible and itemsLayout.AbsoluteContentSize.Y or 0
+            itemsFrame.Size = UDim2.new(1, 0, 0, itemsHeight)
+            categoryContainer.Size = UDim2.new(1, -10, 0, 60 + (itemsFrame.Visible and itemsHeight + 10 or 0))
+        end
+        
+        updateSizes()
+        itemsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSizes)
+        
+        local expanded = false
+        categoryBtn.MouseButton1Click:Connect(function()
+            expanded = not expanded
+            itemsFrame.Visible = expanded
+            
+            TweenService:Create(arrow, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
+                Rotation = expanded and 90 or 0
+            }):Play()
+            
+            TweenService:Create(categoryBtn, TweenInfo.new(0.2), {
+                BackgroundColor3 = expanded and Color3.fromRGB(35, 35, 55) or Color3.fromRGB(25, 25, 40)
+            }):Play()
+            
+            updateSizes()
+        end)
+        
+        categoryBtn.MouseEnter:Connect(function()
+            if not expanded then
+                TweenService:Create(categoryBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+                }):Play()
+            end
+        end)
+        
+        categoryBtn.MouseLeave:Connect(function()
+            if not expanded then
+                TweenService:Create(categoryBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+                }):Play()
+            end
+        end)
+    end
+    
+    local function updateScrollSize()
+        scrollFrame.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 15)
+    end
+    
+    updateScrollSize()
+    listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateScrollSize)
+    
+    -- Entrance Animation
+    mainFrame.Size = UDim2.new(0, 0, 0, 0)
+    mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    
+    TweenService:Create(mainFrame, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 380, 0, 520),
+        Position = UDim2.new(0.5, -190, 0.5, -260)
+    }):Play()
+end
+
+createUI()
