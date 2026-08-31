@@ -1,6 +1,6 @@
 -- ==========================================
--- 🎮 ProHub - Auto-Buy Trader + Auto-Roll (All-in-One)
--- UI สไตล์ Sidebar Hub
+-- 🎮 ProHub v2 - Auto-Buy Trader + Auto-Roll
+-- แก้ไข: กดปุ่มเกมจริง + รอเดินเสร็จก่อนสุ่มใหม่ + จัดหมวด Rarity
 -- ==========================================
 
 local Players = game:GetService("Players")
@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -15,9 +16,6 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 local HasFileSystem = (writefile and readfile and isfile) and true or false
 local SaveFileName = "ProHub_Settings.json"
 
--- ==========================================
--- 🔧 หา Instance แบบมี Timeout (กันสคริปต์ค้างถ้าเกมไม่มีระบบนั้น)
--- ==========================================
 local function SafeWaitForChild(parent, name, timeout)
     timeout = timeout or 5
     if not parent then return nil end
@@ -33,65 +31,122 @@ local function SafeWaitForChild(parent, name, timeout)
 end
 
 -- ==========================================
--- 📦 State ทั้งหมด (ประกาศไว้ก่อนเพื่อให้ฟังก์ชันข้างล่างอ้างถึงได้)
+-- 📊 ข้อมูล Rarity จากโค้ดเกม (กรองเฉพาะที่มีชื่อตรง)
+-- ==========================================
+local RarityData = {
+    Common   = { color = Color3.fromRGB(81,255,0),    icon = "⬜", order = 1 },
+    Rare     = { color = Color3.fromRGB(0,153,255),   icon = "🟦", order = 2 },
+    Epic     = { color = Color3.fromRGB(119,0,255),   icon = "🟣", order = 3 },
+    Legendary= { color = Color3.fromRGB(255,190,0),   icon = "🟡", order = 4 },
+    Mythic   = { color = Color3.fromRGB(255,0,80),    icon = "🔴", order = 5 },
+    Secret   = { color = Color3.fromRGB(130,0,180),   icon = "🟤", order = 6 },
+    God      = { color = Color3.fromRGB(255,255,120), icon = "⭐", order = 7 },
+    Limited  = { color = Color3.fromRGB(0,255,200),   icon = "💎", order = 8 },
+}
+
+-- ตาราง Name → Rarity (จากไฟล์เกม)
+local CharRarity = {
+    -- Common
+    Zoro="Common", Krillin="Common", Luffy="Common", Ussop="Common",
+    Itadori="Common", ["Rock Lee"]="Common",
+    -- Rare
+    Maki="Rare", Goku="Rare", Sakura="Rare", Mob="Rare",
+    Junwoo="Rare", Choji="Rare",
+    -- Epic
+    Tanjiro="Epic", Shinra="Epic", Guts="Epic", Manji="Epic",
+    Ban="Epic", Piccolo="Epic", Renji="Epic", Shikamaru="Epic",
+    -- Legendary
+    Erwin="Legendary", Sukuna="Legendary", Gojo="Legendary",
+    Naruto="Legendary", Saitama="Legendary", Trunks="Legendary",
+    Grimmjow="Legendary", Zenitsu="Legendary", Nanami="Legendary",
+    Mage="Legendary", Knight="Legendary",
+    -- Mythic
+    Stark="Mythic", Kokushibo="Mythic", ["Simo Hayha"]="Mythic",
+    Hoshina="Mythic", Ace="Mythic", Broly="Mythic", Orihime="Mythic",
+    Rengoku="Mythic", Toji="Mythic", Kashimo="Mythic", Kakashi="Mythic",
+    Tobi="Mythic", Kang="Mythic", Akaza="Mythic", Kisuke="Mythic",
+    Yoruichi="Mythic",
+    -- Secret
+    Dio="Secret", Frieren="Secret", Yhwatch="Secret", Jiren="Secret",
+    Byakuya="Secret", Ulquiorra="Secret", Kenpachi="Secret", Gyomei="Secret",
+    Megumi="Secret", Yuta="Secret", Hakari="Secret", Mojuro="Secret",
+    Sasuke="Secret", Orochimaru="Secret", Jiraiya="Secret", Tsunade="Secret",
+    ["Baek Human Form"]="Secret", ["Choi"]="Secret", ChaHaein="Secret",
+    ["Naruto (Six Path)"]="Secret", Douma="Secret", Igris="Secret",
+    ["Junwoo (Snow)"]="Secret", ["Sakura (HundredSeal)"]="Secret",
+    ["Sasuke (Adult)"]="Secret", Magellan="Secret",
+    ["Shadow Igris"]="Secret", Tusk="Secret", Iron="Secret", Beru="Secret",
+    -- God
+    Beerus="God", Rimuru="God", Whis="God", Yamamoto="God",
+    ["Aizen (Transcendent)"]="God", Ichigo="God", Dabura="God",
+    Madara="God", Hashirama="God", Hwan="God", ["Sung (Monarch)"]="God",
+    ["Gojo (Shibuya)"]="God", ["Yuji (Modulo)"]="God",
+    ["Madara (Six Path)"]="God", ["Madara (Limbo)"]="God",
+    Doflamingo="God", Boros="God", ["Boros v2"]="God", GunDevil="God",
+    Escanor="God", ["Enraged Escanor"]="God", ["Demon Meliodas"]="God",
+    ["Goku (Black)"]="God", ["Sukuna (Heian)"]="God", Muzan="God",
+    ["Muzan (Evolved)"]="God", Shanks="God", Ainz="God",
+    ["Death Knight"]="God", Yorichi="God", JiraiyaFrog="God",
+    ["Madara (Clone)"]="God",
+    -- Limited
+    Entoma="Limited", ["Spider (Entoma)"]="Limited",
+    ["Hakari (JackPot)"]="Limited", Shalltear="Limited", Juuzou="Limited",
+    Milim="Limited", Tatsumaki="Limited", Yugi="Limited",
+    DarkMagician="Limited", DarkMagicianGirl="Limited", Akainu="Limited",
+    Kizaru="Limited", Kuzan="Limited", Okurun="Limited", Yor="Limited",
+    Lelouch="Limited", ["Britain Army"]="Limited", ["Cosmic Garou"]="Limited",
+    Mash="Limited", Genos="Limited", Julius="Limited", Kaneki="Limited",
+    Denji="Limited", Law="Limited", Sakamoto="Limited",
+    ["Sakamoto (Fit)"]="Limited", Frieza="Limited", ["Black Frieza"]="Limited",
+    Yujiro="Limited", ["Saitama (Serious)"]="Limited", Albedo="Limited",
+    Katakuri="Limited", Makima="Limited", Rudeus="Limited", Cid="Limited",
+    Itachi="Limited", HollowKnight="Limited",
+    ["HollowKnight1(Igris)"]="Limited", ["HollowKnight2(Igris)"]="Limited",
+    ["HollowKnight3(Igris)"]="Limited",
+}
+
+local function GetRarity(name)
+    return CharRarity[name] or "Unknown"
+end
+
+-- ==========================================
+-- 📦 State
 -- ==========================================
 local TraderSettings = {
-    AutoBuyEnabled = false, MaxConcurrentItems = 4, UnitDelay = 0.05,
-    TurboMode = false, SortMode = "StockAsc", RecheckInterval = 2, BudgetLimit = nil,
+    AutoBuyEnabled=false, MaxConcurrentItems=4, UnitDelay=0.05,
+    TurboMode=false, SortMode="StockAsc", RecheckInterval=2,
 }
-local ItemEnabled = {}
-local ItemListCache = {}
+local ItemEnabled, ItemListCache = {}, {}
 local TraderBought, TraderSpent, ActiveBuyThreads = 0, 0, 0
 local isBuyingTrader = false
 
 local RollSettings = {
-    AutoRoll = false, RollDelay = 0.6, TurboMode = false, BuyAllMatches = true, MaxBuysPerRoll = 15,
+    AutoRoll=false, BuyAllMatches=true, MaxBuysPerRoll=15,
+    -- ใหม่: หน่วงรอ animation เดิน ก่อนสุ่มครั้งต่อไป
+    WalkWaitTime = 3.0,  -- วินาทีรอหลัง roll (ปรับได้)
 }
-local MasterCharacterList = {
-    "Ace","Ainz","Aizen (Transcendent)","Akainu","Akaza","Albedo","Baek Beast Form","Baek Human Form",
-    "Ban","Beerus","Beru","Black Frieza","Boros","Boros v2","BossAxe","Britain Army","Broly","Byakuya",
-    "ChaHaein","Choi","Choji","Cid","Cosmic Garou","Dabura","DarkMagician","DarkMagicianGirl","Death Knight",
-    "Demon Meliodas","Denji","Dio","Doflamingo","Douma","Enraged Escanor","Entoma","Erwin","Escanor",
-    "Frieren","Frieza","Fused Zamasu","Genos","Gojo","Gojo (Shibuya)","Goku","Goku (Black)","Grimmjow",
-    "GunDevil","Guts","Gyomei","Hakari","Hakari (JackPot)","Hashirama","HollowKnight","HollowKnight1(Igris)",
-    "HollowKnight2(Igris)","HollowKnight3(Igris)","Hoshina","Hwan","Ichigo","Igris","Iron","Itachi","Itadori",
-    "Jiraiya","JiraiyaFrog","Jiren","Julius","Junwoo","Junwoo (Snow)","Juuzou","Kaguya","Kakashi","Kaneki",
-    "Kang","Kashimo","Katakuri","Kenpachi","Kisuke","Kizaru","Knight","Kokushibo","Krillin","Kuzan","Law",
-    "Lelouch","Luffy","Madara","Madara (Clone)","Madara (Limbo)","Madara (Six Path)","Mage","Magellan",
-    "Mahoraga","Maki","Makima","Manji","Mash","Megumi","Milim","Mob","Mojuro","Muzan","Muzan (Evolved)",
-    "Nanami","Naruto","Naruto (Six Path)","Naruto (Six Path) Clone","Naruto Baryon","NarutoClone","Okurun",
-    "Orihime","Orochimaru","Piccolo","Rengoku","Renji","Rika","Rimuru","Rock Lee","Rudeus","Saitama",
-    "Saitama (Serious)","Sakamoto","Sakamoto (Fit)","Sakura","Sakura (HundredSeal)","Sasuke","Sasuke (Adult)",
-    "Shadow Igris","Shalltear","Shanks","Shikamaru","Shinra","Simo Hayha","Spider (Entoma)","Stark","Sukuna",
-    "Sukuna (Heian)","SummonerTest","Sung (Monarch)","Tanjiro","Tatsumaki","Tobi","Toji","Trunks","Tsunade",
-    "Tusk","Ulquiorra","Ussop","Whis","Yamamoto","Yhwatch","Yor","Yorichi","Yoruichi","Yugi","Yuji (Modulo)",
-    "Yujiro","Yuta","Zenitsu","Zoro"
-}
+
 local MasterMutationList = {"None","Gold","Diamond","Demon","Destroyer","Hollow","Slayer","Cursed","Parasite","Astronaut"}
 local CharacterEnabled, MutationEnabled = {}, {}
-for _, name in ipairs(MasterCharacterList) do CharacterEnabled[name] = true end
+
+-- เริ่มต้นทุกตัวที่รู้จัก
+for name in pairs(CharRarity) do CharacterEnabled[name] = true end
 for _, mut in ipairs(MasterMutationList) do MutationEnabled[mut] = true end
+
 local RollCount, RollBought = 0, 0
-local isProcessingRoll = false
-local waitingForRoll = false
-local rollGeneration = 0
+local isWaitingWalk = false  -- ← กำลังรอ animation เดิน
 
--- เรียนรู้ Rarity เองจากข้อมูลจริงตอนสุ่ม (ไม่ได้ใส่ตายตัวมาล่วงหน้า)
--- จะค่อยๆ เต็มขึ้นเรื่อยๆ ตามที่บอทเจอจริงระหว่างเล่น
-local CharacterRarity = {}
-local ApplyCharacterFilters = nil -- กำหนดค่าจริงตอนสร้าง UI ด้านล่าง
-
-local AFKSettings = { Enabled = true, ProactiveInterval = 90 }
+local AFKSettings = { Enabled=true, ProactiveInterval=90 }
 local lastAFKAction = os.clock()
 
 local PurchaseLog = {}
 local function AddLog(text, color)
-    table.insert(PurchaseLog, 1, {Text = text, Color = color or Color3.fromRGB(150,255,150)})
+    table.insert(PurchaseLog, 1, {Text=text, Color=color or Color3.fromRGB(150,255,150)})
     if #PurchaseLog > 40 then table.remove(PurchaseLog, #PurchaseLog) end
 end
 
 -- ==========================================
--- 🛡️ Anti-AFK (เปิด-ปิดแชท - วิธีที่ยืนยันแล้วว่าได้ผล)
+-- 🛡️ Anti-AFK
 -- ==========================================
 local function PreventAFK()
     lastAFKAction = os.clock()
@@ -114,18 +169,19 @@ task.spawn(function()
 end)
 
 -- ==========================================
--- 💾 Persistent Save/Load
+-- 💾 Save/Load
 -- ==========================================
 local function SaveSettings()
     if not HasFileSystem then return end
     pcall(function()
         writefile(SaveFileName, HttpService:JSONEncode({
-            ItemEnabled = ItemEnabled, CharacterEnabled = CharacterEnabled, MutationEnabled = MutationEnabled,
-            CharacterRarity = CharacterRarity,
-            TraderSortMode = TraderSettings.SortMode, TraderTurbo = TraderSettings.TurboMode,
-            TraderMaxConcurrent = TraderSettings.MaxConcurrentItems,
-            RollDelay = RollSettings.RollDelay, RollTurbo = RollSettings.TurboMode, RollBuyAll = RollSettings.BuyAllMatches,
-            AFKEnabled = AFKSettings.Enabled,
+            ItemEnabled=ItemEnabled, CharacterEnabled=CharacterEnabled,
+            MutationEnabled=MutationEnabled,
+            TraderSortMode=TraderSettings.SortMode, TraderTurbo=TraderSettings.TurboMode,
+            TraderMaxConcurrent=TraderSettings.MaxConcurrentItems,
+            RollBuyAll=RollSettings.BuyAllMatches,
+            WalkWaitTime=RollSettings.WalkWaitTime,
+            AFKEnabled=AFKSettings.Enabled,
         }))
     end)
 end
@@ -134,65 +190,163 @@ local function LoadSettings()
     if not HasFileSystem then return end
     local ok, data = pcall(function()
         if isfile(SaveFileName) then return HttpService:JSONDecode(readfile(SaveFileName)) end
-        return nil
     end)
     if ok and data then
         if data.ItemEnabled then for k,v in pairs(data.ItemEnabled) do ItemEnabled[k]=v end end
         if data.CharacterEnabled then for k,v in pairs(data.CharacterEnabled) do CharacterEnabled[k]=v end end
         if data.MutationEnabled then for k,v in pairs(data.MutationEnabled) do MutationEnabled[k]=v end end
-        if data.CharacterRarity then for k,v in pairs(data.CharacterRarity) do CharacterRarity[k]=v end end
-        if data.TraderSortMode then TraderSettings.SortMode = data.TraderSortMode end
-        if data.TraderTurbo ~= nil then TraderSettings.TurboMode = data.TraderTurbo end
-        if data.TraderMaxConcurrent then TraderSettings.MaxConcurrentItems = data.TraderMaxConcurrent end
-        if data.RollDelay then RollSettings.RollDelay = data.RollDelay end
-        if data.RollTurbo ~= nil then RollSettings.TurboMode = data.RollTurbo end
-        if data.RollBuyAll ~= nil then RollSettings.BuyAllMatches = data.RollBuyAll end
-        if data.AFKEnabled ~= nil then AFKSettings.Enabled = data.AFKEnabled end
-        print("📂 โหลดการตั้งค่าเดิมสำเร็จ")
+        if data.TraderSortMode then TraderSettings.SortMode=data.TraderSortMode end
+        if data.TraderTurbo~=nil then TraderSettings.TurboMode=data.TraderTurbo end
+        if data.TraderMaxConcurrent then TraderSettings.MaxConcurrentItems=data.TraderMaxConcurrent end
+        if data.RollBuyAll~=nil then RollSettings.BuyAllMatches=data.RollBuyAll end
+        if data.WalkWaitTime then RollSettings.WalkWaitTime=data.WalkWaitTime end
+        if data.AFKEnabled~=nil then AFKSettings.Enabled=data.AFKEnabled end
     end
 end
 LoadSettings()
 
 -- ==========================================
--- 🔌 ตรวจหา Remote ทั้งสองระบบ (ไม่มีระบบไหนก็ยังใช้อีกระบบได้ปกติ)
+-- 🔌 Remote Detection
 -- ==========================================
 local RemotesFolder = SafeWaitForChild(ReplicatedStorage, "Remotes", 5)
 
-local TraderAvailable = false
-local GetStock, BuyTraderRemote
+local TraderAvailable, GetStock, BuyTraderRemote = false, nil, nil
 if RemotesFolder then
-    local TraderFolder = SafeWaitForChild(RemotesFolder, "Trader", 3)
-    if TraderFolder then
-        GetStock = SafeWaitForChild(TraderFolder, "GetStock", 3)
-        BuyTraderRemote = SafeWaitForChild(TraderFolder, "Buy", 3)
-        TraderAvailable = (GetStock ~= nil and BuyTraderRemote ~= nil)
+    local tf = SafeWaitForChild(RemotesFolder, "Trader", 3)
+    if tf then
+        GetStock = SafeWaitForChild(tf, "GetStock", 3)
+        BuyTraderRemote = SafeWaitForChild(tf, "Buy", 3)
+        TraderAvailable = GetStock~=nil and BuyTraderRemote~=nil
     end
 end
 
-local RollAvailable = false
-local RollRemote, BuyRollRemote
+local RollAvailable, RollRemote, BuyRollRemote = false, nil, nil
 if RemotesFolder then
-    local CharFolder = SafeWaitForChild(RemotesFolder, "Characters", 3)
-    if CharFolder then
-        RollRemote = SafeWaitForChild(CharFolder, "Roll", 3)
-        BuyRollRemote = SafeWaitForChild(CharFolder, "Buy", 3)
-        RollAvailable = (RollRemote ~= nil and BuyRollRemote ~= nil)
+    local cf = SafeWaitForChild(RemotesFolder, "Characters", 3)
+    if cf then
+        RollRemote = SafeWaitForChild(cf, "Roll", 3)
+        BuyRollRemote = SafeWaitForChild(cf, "Buy", 3)
+        RollAvailable = RollRemote~=nil and BuyRollRemote~=nil
     end
 end
 
 -- ==========================================
--- 🛒 ฟังก์ชัน Trader
+-- 🎯 หาปุ่ม Roll ในเกม (Workspace)
+-- ==========================================
+local function FindRollButton()
+    -- ค้นหา RollButton > Button > ClickDetector ตาม structure ที่เห็นในรูป
+    local rollObj = workspace:FindFirstChild("Roll", true)
+        or workspace:FindFirstChild("RollButton", true)
+    if not rollObj then return nil end
+
+    -- หา ClickDetector ใน RollButton
+    local cd = rollObj:FindFirstChildWhichIsA("ClickDetector", true)
+    if cd then return cd end
+
+    -- หาใน Button
+    local btn = rollObj:FindFirstChild("Button")
+    if btn then
+        cd = btn:FindFirstChildWhichIsA("ClickDetector")
+        if cd then return cd end
+    end
+    return nil
+end
+
+-- คลิกปุ่ม Roll จริงในเกม
+local function ClickRollButton()
+    local cd = FindRollButton()
+    if cd then
+        -- วิธี 1: FireClickDetector
+        pcall(function()
+            local fireCD = fireclickdetector or (function(d) end)
+            fireCD(cd)
+        end)
+        -- วิธี 2: ถ้า fireclickdetector ไม่มี ใช้ Remote แทน
+        if not fireclickdetector and RollAvailable then
+            pcall(function() RollRemote:FireServer() end)
+        end
+        return true
+    elseif RollAvailable then
+        -- fallback: ใช้ Remote ตรง
+        pcall(function() RollRemote:FireServer() end)
+        return true
+    end
+    return false
+end
+
+-- ==========================================
+-- 🎲 Roll Logic (แก้ไขหลัก: รอ WalkWaitTime ก่อนสุ่มใหม่)
+-- ==========================================
+local function CheckCharacter(name) return CharacterEnabled[name]==true end
+local function CheckMutation(mut)
+    local m = (mut=="" or not mut) and "None" or mut
+    return MutationEnabled[m]==true
+end
+
+if RollAvailable then
+    RollRemote.OnClientEvent:Connect(function(player, base, rollData, unk, rollId)
+        if player~=LocalPlayer or not rollData then return end
+
+        -- ซื้อทันทีที่ได้รับ event (ไม่ต้องรอ)
+        local boughtThisRoll = 0
+        for slotIndex, charInfo in pairs(rollData) do
+            if boughtThisRoll >= RollSettings.MaxBuysPerRoll then break end
+            if not RollSettings.BuyAllMatches and boughtThisRoll >= 1 then break end
+            local name = charInfo.Name or "Unknown"
+            local mut = charInfo.Mutation or ""
+            if CheckCharacter(name) and CheckMutation(mut) then
+                local ok = pcall(function() BuyRollRemote:FireServer(rollId, slotIndex) end)
+                if ok then
+                    boughtThisRoll = boughtThisRoll + 1
+                    RollBought = RollBought + 1
+                    local rarity = GetRarity(name)
+                    local rarInfo = RarityData[rarity] or {}
+                    AddLog(string.format("%s %s [%s] — %s",
+                        rarInfo.icon or "?", name,
+                        mut~="" and mut or "None", rarity),
+                        rarInfo.color or Color3.new(1,1,1))
+                end
+            end
+        end
+
+        -- ← หลังซื้อเสร็จ → รอให้ตัวเดิน animation ก่อนสุ่มใหม่
+        isWaitingWalk = true
+        task.wait(RollSettings.WalkWaitTime)
+        isWaitingWalk = false
+    end)
+end
+
+-- Loop สุ่ม: รอ isWaitingWalk ก่อนทุกครั้ง
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if RollSettings.AutoRoll and RollAvailable and not isWaitingWalk then
+            RollCount = RollCount + 1
+            local clicked = ClickRollButton()
+            if not clicked then
+                -- ถ้ากดปุ่มไม่ได้ รอแล้วลองใหม่
+                task.wait(1)
+            else
+                -- รอสักครู่ก่อนเช็ค isWaitingWalk รอบต่อไป
+                -- (event จะ set isWaitingWalk=true เอง)
+                task.wait(0.5)
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- 🛒 Trader Logic
 -- ==========================================
 local function GetCurrency()
     local ls = LocalPlayer:FindFirstChild("leaderstats")
     if not ls then return nil, nil end
-    local commonNames = {"Cash","Coins","Money","Gold","Gems","Currency","Bucks","Diamonds"}
-    for _, name in ipairs(commonNames) do
-        local stat = ls:FindFirstChild(name)
-        if stat and (stat:IsA("IntValue") or stat:IsA("NumberValue")) then return stat.Value, name end
+    for _, name in ipairs({"Cash","Coins","Money","Gold","Gems","Currency","Bucks","Diamonds"}) do
+        local s = ls:FindFirstChild(name)
+        if s and (s:IsA("IntValue") or s:IsA("NumberValue")) then return s.Value, name end
     end
-    for _, child in pairs(ls:GetChildren()) do
-        if child:IsA("IntValue") or child:IsA("NumberValue") then return child.Value, child.Name end
+    for _, c in pairs(ls:GetChildren()) do
+        if c:IsA("IntValue") or c:IsA("NumberValue") then return c.Value, c.Name end
     end
     return nil, nil
 end
@@ -200,10 +354,10 @@ end
 local function SortTraderItems(items)
     local sorted = {}
     for _, it in ipairs(items) do table.insert(sorted, it) end
-    if TraderSettings.SortMode == "StockAsc" then
-        table.sort(sorted, function(a,b) return (a.Stock or 0) < (b.Stock or 0) end)
-    elseif TraderSettings.SortMode == "PriceDesc" then
-        table.sort(sorted, function(a,b) return (a.Price or 0) > (b.Price or 0) end)
+    if TraderSettings.SortMode=="StockAsc" then
+        table.sort(sorted, function(a,b) return (a.Stock or 0)<(b.Stock or 0) end)
+    elseif TraderSettings.SortMode=="PriceDesc" then
+        table.sort(sorted, function(a,b) return (a.Price or 0)>(b.Price or 0) end)
     end
     return sorted
 end
@@ -215,38 +369,33 @@ local function BuyItemUnits(item)
     end
     ActiveBuyThreads = ActiveBuyThreads + 1
     local bought = 0
-    local unitDelay = TraderSettings.TurboMode and 0 or TraderSettings.UnitDelay
+    local delay = TraderSettings.TurboMode and 0 or TraderSettings.UnitDelay
     for i = 1, (item.Stock or 0) do
         if not TraderSettings.AutoBuyEnabled then break end
-        if TraderSettings.BudgetLimit and item.Price then
-            local currentMoney = select(1, GetCurrency())
-            if currentMoney and currentMoney < item.Price then break end
-        end
         local ok = pcall(function() BuyTraderRemote:FireServer(item.Name) end)
         if ok then
             bought = bought + 1
             TraderBought = TraderBought + 1
             if item.Price then TraderSpent = TraderSpent + item.Price end
         end
-        task.wait(unitDelay > 0 and unitDelay or nil)
+        if delay > 0 then task.wait(delay) end
     end
     if bought > 0 then AddLog(string.format("🛒 %s x%d", item.Name, bought), Color3.fromRGB(100,255,100)) end
     ActiveBuyThreads = ActiveBuyThreads - 1
 end
 
 local function AutoBuyItems()
-    if not TraderAvailable then return end
-    if isBuyingTrader or not TraderSettings.AutoBuyEnabled then return end
+    if not TraderAvailable or isBuyingTrader or not TraderSettings.AutoBuyEnabled then return end
     isBuyingTrader = true
     local ok, stockData = pcall(function() return GetStock:InvokeServer() end)
     if ok and stockData and stockData.Items then
         ItemListCache = stockData.Items
         for _, item in ipairs(stockData.Items) do
-            if ItemEnabled[item.Name] == nil then ItemEnabled[item.Name] = true end
+            if ItemEnabled[item.Name]==nil then ItemEnabled[item.Name]=true end
         end
         for _, item in ipairs(SortTraderItems(stockData.Items)) do
             if not TraderSettings.AutoBuyEnabled then break end
-            if (ItemEnabled[item.Name] ~= false) and item.Stock and item.Stock > 0 then
+            if ItemEnabled[item.Name]~=false and item.Stock and item.Stock>0 then
                 task.spawn(BuyItemUnits, item)
             end
         end
@@ -258,10 +407,10 @@ end
 
 if TraderAvailable then
     workspace:GetAttributeChangedSignal("TraderEventActive"):Connect(function()
-        if workspace:GetAttribute("TraderEventActive") == true and TraderSettings.AutoBuyEnabled then
+        if workspace:GetAttribute("TraderEventActive")==true and TraderSettings.AutoBuyEnabled then
             task.spawn(function()
                 task.wait(1)
-                while workspace:GetAttribute("TraderEventActive") == true and TraderSettings.AutoBuyEnabled do
+                while workspace:GetAttribute("TraderEventActive")==true and TraderSettings.AutoBuyEnabled do
                     AutoBuyItems()
                     task.wait(TraderSettings.RecheckInterval)
                 end
@@ -270,320 +419,271 @@ if TraderAvailable then
     end)
 end
 
--- ==========================================
--- 🎲 ฟังก์ชัน Roll
--- ==========================================
-local function CheckCharacter(charName) return CharacterEnabled[charName] == true end
-local function CheckMutation(mutName)
-    local currentMut = (mutName == "" or not mutName) and "None" or mutName
-    return MutationEnabled[currentMut] == true
-end
-
-if RollAvailable then
-    RollRemote.OnClientEvent:Connect(function(player, base, rollData, unk, rollId)
-        if player ~= LocalPlayer or not rollData then return end
-        if isProcessingRoll then return end
-        isProcessingRoll = true
-
-        -- 1) เรียนรู้ Rarity จากข้อมูลจริงที่เกมส่งมา (ทุกช่อง ไม่ว่าจะซื้อหรือไม่)
-        local sawNewRarity = false
-        for _, charInfo in pairs(rollData) do
-            local name = charInfo.Name or "Unknown"
-            local observedRarity = charInfo.Rarity or charInfo.RarityName or charInfo.Tier
-            if observedRarity and CharacterRarity[name] ~= observedRarity then
-                CharacterRarity[name] = observedRarity
-                sawNewRarity = true
-            end
-        end
-
-        -- 2) ซื้อตามเงื่อนไขที่ตั้งไว้
-        local boughtThisRoll = 0
-        for slotIndex, charInfo in pairs(rollData) do
-            if boughtThisRoll >= RollSettings.MaxBuysPerRoll then break end
-            if not RollSettings.BuyAllMatches and boughtThisRoll >= 1 then break end
-            local name = charInfo.Name or "Unknown"
-            local mutation = charInfo.Mutation or ""
-            local displayMut = (mutation ~= "" and mutation or "None")
-            if CheckCharacter(name) and CheckMutation(mutation) then
-                local ok = pcall(function() BuyRollRemote:FireServer(rollId, slotIndex) end)
-                if ok then
-                    boughtThisRoll = boughtThisRoll + 1
-                    RollBought = RollBought + 1
-                    AddLog(string.format("🎲 %s [%s]", name, displayMut), Color3.fromRGB(150,200,255))
-                end
-            end
-        end
-
-        isProcessingRoll = false
-
-        if sawNewRarity then
-            SaveSettings()
-            if ApplyCharacterFilters then ApplyCharacterFilters() end
-        end
-
-        -- รอให้ตัวละครเดินไปถึงจุดซื้อก่อน ค่อยปลดล็อกให้สุ่มรอบใหม่
-        -- (ระหว่างนี้ยังกดซื้อได้ปกติ แค่บอทจะไม่ยิงสุ่มใหม่ซ้อนเข้ามา)
+-- ส่งออกตัวแปรที่ Part 2 ต้องใช้
+return {
+    -- Settings
+    TraderSettings=TraderSettings, RollSettings=RollSettings, AFKSettings=AFKSettings,
+    ItemEnabled=ItemEnabled, ItemListCache=ItemListCache,
+    CharacterEnabled=CharacterEnabled, MutationEnabled=MutationEnabled,
+    -- Stats
+    TraderBought=function() return TraderBought end,
+    TraderSpent=function() return TraderSpent end,
+    RollCount=function() return RollCount end,
+    RollBought=function() return RollBought end,
+    isWaitingWalk=function() return isWaitingWalk end,
+    -- Availability
+    TraderAvailable=TraderAvailable, RollAvailable=RollAvailable,
+    -- Functions
+    GetCurrency=GetCurrency, AutoBuyItems=AutoBuyItems,
+    SaveSettings=SaveSettings, AddLog=AddLog, PurchaseLog=PurchaseLog,
+    GetStock=GetStock, RefreshItemListCache=function(cb)
+        if not TraderAvailable then return end
         task.spawn(function()
-            task.wait(RollSettings.RollDelay)
-            waitingForRoll = false
-        end)
-    end)
-end
-
-task.spawn(function()
-    while true do
-        task.wait(0.15)
-        if RollSettings.AutoRoll and RollAvailable and not waitingForRoll then
-            waitingForRoll = true
-            rollGeneration = rollGeneration + 1
-            local myGen = rollGeneration
-            RollCount = RollCount + 1
-            pcall(function() RollRemote:FireServer() end)
-
-            -- กันค้าง: ถ้าเซิร์ฟเวอร์ไม่ตอบกลับเลยภายในเวลานี้ ปลดล็อกเองกันบอทหยุดถาวร
-            task.spawn(function()
-                task.wait(8)
-                if waitingForRoll and rollGeneration == myGen then
-                    waitingForRoll = false
+            local ok, data = pcall(function() return GetStock:InvokeServer() end)
+            if ok and data and data.Items then
+                ItemListCache = data.Items
+                for _, item in ipairs(data.Items) do
+                    if ItemEnabled[item.Name]==nil then ItemEnabled[item.Name]=true end
                 end
-            end)
-        end
-    end
-end)
+                if cb then cb() end
+            end
+        end)
+    end,
+    -- Rarity
+    RarityData=RarityData, CharRarity=CharRarity, GetRarity=GetRarity,
+    MasterMutationList=MasterMutationList,
+    -- Walk wait label updater
+    lastAFKAction=function() return lastAFKAction end,
+    PreventAFK=PreventAFK,
+    ClickRollButton=ClickRollButton,
+}
+-- ==========================================
+-- 🎨 UI Part (วางต่อจาก Part 1 โดยตรง ไม่ต้องแยกไฟล์)
+-- ลบบรรทัด return {...} ของ Part 1 ออก แล้วต่อโค้ดนี้เลย
+-- ==========================================
 
--- ==========================================
--- 🎨 Helper สร้าง UI
--- ==========================================
-local function NewInstance(class, props, parent)
-    local inst = Instance.new(class)
-    for k, v in pairs(props) do inst[k] = v end
-    if parent then inst.Parent = parent end
-    return inst
+local function NewI(class, props, parent)
+    local i = Instance.new(class)
+    for k,v in pairs(props) do i[k]=v end
+    if parent then i.Parent=parent end
+    return i
 end
 
-local ScreenGui = NewInstance("ScreenGui", {
-    Name = "ProHubGUI", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 999999,
+local ScreenGui = NewI("ScreenGui",{
+    Name="ProHubGUI", ResetOnSpawn=false,
+    ZIndexBehavior=Enum.ZIndexBehavior.Sibling, DisplayOrder=999999,
 })
-pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
-if not ScreenGui.Parent then ScreenGui.Parent = PlayerGui end
+pcall(function() ScreenGui.Parent=game:GetService("CoreGui") end)
+if not ScreenGui.Parent then ScreenGui.Parent=PlayerGui end
 
-local MainFrame = NewInstance("Frame", {
-    Size = UDim2.new(0, 680, 0, 480), Position = UDim2.new(0.5, -340, 0.5, -240),
-    BackgroundColor3 = Color3.fromRGB(18, 18, 24), BorderSizePixel = 0, Active = true, ClipsDescendants = true,
-}, ScreenGui)
-NewInstance("UICorner", {CornerRadius = UDim.new(0, 12)}, MainFrame)
+local MainFrame = NewI("Frame",{
+    Size=UDim2.new(0,700,0,500),
+    Position=UDim2.new(0.5,-350,0.5,-250),
+    BackgroundColor3=Color3.fromRGB(18,18,24),
+    BorderSizePixel=0, Active=true, ClipsDescendants=true,
+},ScreenGui)
+NewI("UICorner",{CornerRadius=UDim.new(0,12)},MainFrame)
 
-local TopBar = NewInstance("Frame", {
-    Size = UDim2.new(1, 0, 0, 46), BackgroundColor3 = Color3.fromRGB(14, 14, 19), BorderSizePixel = 0,
-}, MainFrame)
-NewInstance("TextLabel", {
-    Size = UDim2.new(1, -90, 1, 0), Position = UDim2.new(0, 16, 0, 0), BackgroundTransparency = 1,
-    Text = "🎮 ProHub — Trader & Roll", TextColor3 = Color3.new(1,1,1), Font = Enum.Font.GothamBold,
-    TextSize = 16, TextXAlignment = Enum.TextXAlignment.Left,
-}, TopBar)
-local CloseButton = NewInstance("TextButton", {
-    Size = UDim2.new(0, 30, 0, 30), Position = UDim2.new(1, -38, 0, 8),
-    BackgroundColor3 = Color3.fromRGB(200, 50, 50), Text = "✕", TextColor3 = Color3.new(1,1,1),
-    Font = Enum.Font.GothamBold, TextSize = 15,
-}, TopBar)
-NewInstance("UICorner", {CornerRadius = UDim.new(0, 8)}, CloseButton)
+-- TopBar
+local TopBar = NewI("Frame",{
+    Size=UDim2.new(1,0,0,46),
+    BackgroundColor3=Color3.fromRGB(14,14,19), BorderSizePixel=0,
+},MainFrame)
+NewI("UICorner",{CornerRadius=UDim.new(0,12)},TopBar)
+NewI("TextLabel",{
+    Size=UDim2.new(1,-100,1,0), Position=UDim2.new(0,16,0,0),
+    BackgroundTransparency=1, Text="🎮 ProHub v2 — Trader & Roll",
+    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold,
+    TextSize=16, TextXAlignment=Enum.TextXAlignment.Left,
+},TopBar)
 
-local Body = NewInstance("Frame", {
-    Size = UDim2.new(1, 0, 1, -46), Position = UDim2.new(0, 0, 0, 46), BackgroundTransparency = 1,
-}, MainFrame)
+local WalkStatusLabel = NewI("TextLabel",{
+    Size=UDim2.new(0,140,0,20), Position=UDim2.new(0.5,-70,0,13),
+    BackgroundTransparency=1, Text="",
+    TextColor3=Color3.fromRGB(255,220,80), Font=Enum.Font.GothamBold,
+    TextSize=11, TextXAlignment=Enum.TextXAlignment.Center,
+},TopBar)
 
-local Sidebar = NewInstance("Frame", {
-    Size = UDim2.new(0, 170, 1, 0), BackgroundColor3 = Color3.fromRGB(14, 14, 19), BorderSizePixel = 0,
-}, Body)
-NewInstance("UIListLayout", {Padding = UDim.new(0,4), SortOrder = Enum.SortOrder.LayoutOrder}, Sidebar)
-NewInstance("UIPadding", {PaddingTop = UDim.new(0,10), PaddingLeft = UDim.new(0,8), PaddingRight = UDim.new(0,8)}, Sidebar)
+local CloseBtn = NewI("TextButton",{
+    Size=UDim2.new(0,30,0,30), Position=UDim2.new(1,-38,0,8),
+    BackgroundColor3=Color3.fromRGB(200,50,50), Text="✕",
+    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold, TextSize=15,
+},TopBar)
+NewI("UICorner",{CornerRadius=UDim.new(0,8)},CloseBtn)
 
-local ContentArea = NewInstance("Frame", {
-    Size = UDim2.new(1, -170, 1, 0), Position = UDim2.new(0, 170, 0, 0), BackgroundTransparency = 1,
-}, Body)
-NewInstance("UIPadding", {
-    PaddingTop = UDim.new(0,14), PaddingLeft = UDim.new(0,16), PaddingRight = UDim.new(0,16), PaddingBottom = UDim.new(0,14),
-}, ContentArea)
+-- Body
+local Body = NewI("Frame",{
+    Size=UDim2.new(1,0,1,-46), Position=UDim2.new(0,0,0,46),
+    BackgroundTransparency=1,
+},MainFrame)
 
--- ==========================================
--- 📑 สร้างแท็บ (Sidebar + Panel ที่ scroll ได้เอง)
--- ==========================================
+local Sidebar = NewI("Frame",{
+    Size=UDim2.new(0,160,1,0),
+    BackgroundColor3=Color3.fromRGB(14,14,19), BorderSizePixel=0,
+},Body)
+NewI("UIListLayout",{Padding=UDim.new(0,4), SortOrder=Enum.SortOrder.LayoutOrder},Sidebar)
+NewI("UIPadding",{PaddingTop=UDim.new(0,10),PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8)},Sidebar)
+
+local ContentArea = NewI("Frame",{
+    Size=UDim2.new(1,-160,1,0), Position=UDim2.new(0,160,0,0),
+    BackgroundTransparency=1,
+},Body)
+NewI("UIPadding",{
+    PaddingTop=UDim.new(0,12), PaddingLeft=UDim.new(0,14),
+    PaddingRight=UDim.new(0,14), PaddingBottom=UDim.new(0,12),
+},ContentArea)
+
+-- Tabs
 local TabDefs = {
     {Id="Dashboard", Icon="🏠", Name="Dashboard"},
-    {Id="Trader", Icon="🛒", Name="Trader"},
-    {Id="Roll", Icon="🎲", Name="Roll"},
-    {Id="AFK", Icon="🛡️", Name="AFK"},
-    {Id="Logs", Icon="📜", Name="Logs"},
+    {Id="Trader",    Icon="🛒", Name="Trader"},
+    {Id="Roll",      Icon="🎲", Name="Roll"},
+    {Id="AFK",       Icon="🛡️",  Name="AFK"},
+    {Id="Logs",      Icon="📜", Name="Logs"},
 }
-local Panels, TabButtons = {}, {}
+local Panels, TabBtns = {}, {}
 
 for i, def in ipairs(TabDefs) do
-    local btn = NewInstance("TextButton", {
-        Size = UDim2.new(1,0,0,38), BackgroundColor3 = Color3.fromRGB(22,22,28),
-        Text = def.Icon.."  "..def.Name, TextColor3 = Color3.fromRGB(150,150,160),
-        Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = i,
-    }, Sidebar)
-    NewInstance("UICorner", {CornerRadius = UDim.new(0,8)}, btn)
-    NewInstance("UIPadding", {PaddingLeft = UDim.new(0,10)}, btn)
-    TabButtons[def.Id] = btn
+    local btn = NewI("TextButton",{
+        Size=UDim2.new(1,0,0,36), BackgroundColor3=Color3.fromRGB(22,22,28),
+        Text=def.Icon.."  "..def.Name, TextColor3=Color3.fromRGB(150,150,160),
+        Font=Enum.Font.GothamBold, TextSize=12,
+        TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=i,
+    },Sidebar)
+    NewI("UICorner",{CornerRadius=UDim.new(0,8)},btn)
+    NewI("UIPadding",{PaddingLeft=UDim.new(0,10)},btn)
+    TabBtns[def.Id]=btn
 
-    local panel = NewInstance("ScrollingFrame", {
-        Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, BorderSizePixel = 0,
-        ScrollBarThickness = 4, CanvasSize = UDim2.new(0,0,0,0),
-        AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = (def.Id == "Dashboard"),
-    }, ContentArea)
-    NewInstance("UIListLayout", {Padding = UDim.new(0,10), SortOrder = Enum.SortOrder.LayoutOrder}, panel)
-    Panels[def.Id] = panel
+    local panel = NewI("ScrollingFrame",{
+        Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, BorderSizePixel=0,
+        ScrollBarThickness=4, CanvasSize=UDim2.new(0,0,0,0),
+        AutomaticCanvasSize=Enum.AutomaticSize.Y, Visible=(def.Id=="Dashboard"),
+    },ContentArea)
+    NewI("UIListLayout",{Padding=UDim.new(0,8), SortOrder=Enum.SortOrder.LayoutOrder},panel)
+    Panels[def.Id]=panel
 
     btn.MouseButton1Click:Connect(function()
-        for id, b in pairs(TabButtons) do
-            local active = (id == def.Id)
-            Panels[id].Visible = active
-            b.BackgroundColor3 = active and Color3.fromRGB(50,50,68) or Color3.fromRGB(22,22,28)
-            b.TextColor3 = active and Color3.new(1,1,1) or Color3.fromRGB(150,150,160)
+        for id, b in pairs(TabBtns) do
+            local a = id==def.Id
+            Panels[id].Visible=a
+            b.BackgroundColor3=a and Color3.fromRGB(50,50,68) or Color3.fromRGB(22,22,28)
+            b.TextColor3=a and Color3.new(1,1,1) or Color3.fromRGB(150,150,160)
         end
     end)
 end
-TabButtons["Dashboard"].BackgroundColor3 = Color3.fromRGB(50,50,68)
-TabButtons["Dashboard"].TextColor3 = Color3.new(1,1,1)
+TabBtns.Dashboard.BackgroundColor3=Color3.fromRGB(50,50,68)
+TabBtns.Dashboard.TextColor3=Color3.new(1,1,1)
+
+-- ── Helper UI ──
+local function Card(parent, lo, h)
+    local f = NewI("Frame",{
+        Size=UDim2.new(1,0,0,h or 50),
+        BackgroundColor3=Color3.fromRGB(24,24,30),
+        BorderSizePixel=0, LayoutOrder=lo,
+    },parent)
+    NewI("UICorner",{CornerRadius=UDim.new(0,8)},f)
+    NewI("UIPadding",{PaddingLeft=UDim.new(0,10),PaddingTop=UDim.new(0,6),PaddingRight=UDim.new(0,10)},f)
+    return f
+end
+local function Label(parent, text, lo, size, color, bold)
+    return NewI("TextLabel",{
+        Size=UDim2.new(1,0,0,size or 16), BackgroundTransparency=1,
+        Text=text, TextColor3=color or Color3.new(1,1,1),
+        Font=bold and Enum.Font.GothamBold or Enum.Font.Gotham,
+        TextSize=size or 14, TextXAlignment=Enum.TextXAlignment.Left,
+        TextWrapped=true, LayoutOrder=lo,
+    },parent)
+end
+local function BigBtn(parent, text, lo, color)
+    local b = NewI("TextButton",{
+        Size=UDim2.new(1,0,0,38), BackgroundColor3=color,
+        Text=text, TextColor3=Color3.new(1,1,1),
+        Font=Enum.Font.GothamBold, TextSize=13, LayoutOrder=lo,
+    },parent)
+    NewI("UICorner",{CornerRadius=UDim.new(0,8)},b)
+    return b
+end
 
 -- ==========================================
 -- 🏠 Dashboard
 -- ==========================================
-NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,26), BackgroundTransparency=1, Text="🏠 ภาพรวมระบบ",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold, TextSize=18,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=1,
-}, Panels.Dashboard)
-
-local DashTraderCard = NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,50), BackgroundColor3=Color3.fromRGB(24,24,30), Text="",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=13,
-    TextXAlignment=Enum.TextXAlignment.Left, TextWrapped=true, LayoutOrder=2,
-}, Panels.Dashboard)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,8)}, DashTraderCard)
-NewInstance("UIPadding",{PaddingLeft=UDim.new(0,10), PaddingTop=UDim.new(0,6)}, DashTraderCard)
-
-local DashRollCard = NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,50), BackgroundColor3=Color3.fromRGB(24,24,30), Text="",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=13,
-    TextXAlignment=Enum.TextXAlignment.Left, TextWrapped=true, LayoutOrder=3,
-}, Panels.Dashboard)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,8)}, DashRollCard)
-NewInstance("UIPadding",{PaddingLeft=UDim.new(0,10), PaddingTop=UDim.new(0,6)}, DashRollCard)
-
-local DashAFKCard = NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,34), BackgroundColor3=Color3.fromRGB(24,24,30), Text="",
-    TextColor3=Color3.fromRGB(200,200,200), Font=Enum.Font.Gotham, TextSize=12,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=4,
-}, Panels.Dashboard)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,8)}, DashAFKCard)
-NewInstance("UIPadding",{PaddingLeft=UDim.new(0,10)}, DashAFKCard)
-
-NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,40), BackgroundTransparency=1,
-    Text="💡 ไปที่แท็บ 🛒 Trader หรือ 🎲 Roll ทางซ้ายเพื่อเปิดใช้งานและตั้งค่ารายละเอียด",
-    TextColor3=Color3.fromRGB(140,140,150), Font=Enum.Font.Gotham, TextSize=11,
-    TextWrapped=true, TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=5,
-}, Panels.Dashboard)
+Label(Panels.Dashboard,"🏠 ภาพรวมระบบ",1,18,Color3.new(1,1,1),true)
+local DashTrader = NewI("TextLabel",{
+    Size=UDim2.new(1,0,0,48), BackgroundColor3=Color3.fromRGB(24,24,30),
+    Text="", TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham,
+    TextSize=12, TextXAlignment=Enum.TextXAlignment.Left, TextWrapped=true, LayoutOrder=2,
+},Panels.Dashboard)
+NewI("UICorner",{CornerRadius=UDim.new(0,8)},DashTrader)
+NewI("UIPadding",{PaddingLeft=UDim.new(0,10),PaddingTop=UDim.new(0,6)},DashTrader)
+local DashRoll = NewI("TextLabel",{
+    Size=UDim2.new(1,0,0,48), BackgroundColor3=Color3.fromRGB(24,24,30),
+    Text="", TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham,
+    TextSize=12, TextXAlignment=Enum.TextXAlignment.Left, TextWrapped=true, LayoutOrder=3,
+},Panels.Dashboard)
+NewI("UICorner",{CornerRadius=UDim.new(0,8)},DashRoll)
+NewI("UIPadding",{PaddingLeft=UDim.new(0,10),PaddingTop=UDim.new(0,6)},DashRoll)
+local DashAFK = NewI("TextLabel",{
+    Size=UDim2.new(1,0,0,30), BackgroundColor3=Color3.fromRGB(24,24,30),
+    Text="", TextColor3=Color3.fromRGB(200,200,200), Font=Enum.Font.Gotham,
+    TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=4,
+},Panels.Dashboard)
+NewI("UICorner",{CornerRadius=UDim.new(0,8)},DashAFK)
+NewI("UIPadding",{PaddingLeft=UDim.new(0,10)},DashAFK)
 
 -- ==========================================
 -- 🛒 Trader Panel
 -- ==========================================
-NewInstance("TextLabel", {Size=UDim2.new(1,0,0,26), BackgroundTransparency=1, Text="🛒 Auto-Buy Trader",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold, TextSize=18,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=1}, Panels.Trader)
+Label(Panels.Trader,"🛒 Auto-Buy Trader",1,18,Color3.new(1,1,1),true)
+local TraderToggle = BigBtn(Panels.Trader,"🔴 Trader: ปิด",2,Color3.fromRGB(200,50,50))
+Label(Panels.Trader,
+    TraderAvailable and "🟢 พบระบบ Trader" or "⚠️ ไม่พบระบบ Trader",3,11,
+    TraderAvailable and Color3.fromRGB(150,255,150) or Color3.fromRGB(255,150,100))
+local TraderMoney = Label(Panels.Trader,"💰 เงิน: -",4,12,Color3.fromRGB(255,220,100),true)
+local TraderStats = Label(Panels.Trader,"📊 ซื้อแล้ว: 0",5,11,Color3.fromRGB(150,200,255))
 
-local TraderToggleButton = NewInstance("TextButton", {
-    Size=UDim2.new(1,0,0,40), BackgroundColor3=Color3.fromRGB(200,50,50), Text="🔴 Trader: ปิดการทำงาน",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold, TextSize=14, LayoutOrder=2,
-}, Panels.Trader)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,8)}, TraderToggleButton)
-
-NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1,
-    Text = TraderAvailable and "🟢 พบระบบ Trader ในเกมนี้" or "⚠️ ไม่พบระบบ Trader ในเกมนี้",
-    TextColor3 = TraderAvailable and Color3.fromRGB(150,255,150) or Color3.fromRGB(255,150,100),
-    Font=Enum.Font.Gotham, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=3,
-}, Panels.Trader)
-
-local TraderCurrencyLabel = NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="💰 เงิน: -",
-    TextColor3=Color3.fromRGB(255,220,100), Font=Enum.Font.GothamBold, TextSize=12,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=4,
-}, Panels.Trader)
-
-local TraderStatsLabel = NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="📊 ซื้อแล้ว: 0 | ใช้ไป: 0",
-    TextColor3=Color3.fromRGB(150,200,255), Font=Enum.Font.Gotham, TextSize=11,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=5,
-}, Panels.Trader)
-
-local TraderSettingsRow = NewInstance("Frame", {Size=UDim2.new(1,0,0,30), BackgroundTransparency=1, LayoutOrder=6}, Panels.Trader)
-local TraderSortButton = NewInstance("TextButton", {
-    Size=UDim2.new(0.49,0,1,0), BackgroundColor3=Color3.fromRGB(60,60,75), Text="🎯 หายากก่อน",
+-- Sort + Turbo row
+local TSRow = NewI("Frame",{Size=UDim2.new(1,0,0,30),BackgroundTransparency=1,LayoutOrder=6},Panels.Trader)
+local TraderSort = NewI("TextButton",{
+    Size=UDim2.new(0.49,0,1,0), BackgroundColor3=Color3.fromRGB(60,60,75),
+    Text="🎯 หายากก่อน", TextColor3=Color3.new(1,1,1),
+    Font=Enum.Font.Gotham, TextScaled=true,
+},TSRow)
+NewI("UICorner",{CornerRadius=UDim.new(0,6)},TraderSort)
+local TraderTurbo = NewI("TextButton",{
+    Size=UDim2.new(0.49,0,1,0), Position=UDim2.new(0.51,0,0,0),
+    BackgroundColor3=Color3.fromRGB(60,60,75), Text="🐢 Turbo:OFF",
     TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextScaled=true,
-}, TraderSettingsRow)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, TraderSortButton)
-NewInstance("UIPadding",{PaddingLeft=UDim.new(0,3),PaddingRight=UDim.new(0,3)}, TraderSortButton)
-local TraderTurboButton = NewInstance("TextButton", {
-    Size=UDim2.new(0.49,0,1,0), Position=UDim2.new(0.51,0,0,0), BackgroundColor3=Color3.fromRGB(60,60,75),
-    Text="🐢 Turbo:OFF", TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextScaled=true,
-}, TraderSettingsRow)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, TraderTurboButton)
-NewInstance("UIPadding",{PaddingLeft=UDim.new(0,3),PaddingRight=UDim.new(0,3)}, TraderTurboButton)
+},TSRow)
+NewI("UICorner",{CornerRadius=UDim.new(0,6)},TraderTurbo)
 
-local TraderConcLabel = NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="⚡ ซื้อพร้อมกัน: 4 ไอเทม",
-    TextColor3=Color3.fromRGB(220,220,220), Font=Enum.Font.Gotham, TextSize=11,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=7,
-}, Panels.Trader)
-local TraderConcSliderBG = NewInstance("Frame", {
-    Size=UDim2.new(1,0,0,14), BackgroundColor3=Color3.fromRGB(50,50,60), LayoutOrder=8,
-}, Panels.Trader)
-NewInstance("UICorner",{CornerRadius=UDim.new(1,0)}, TraderConcSliderBG)
-local TraderConcFill = NewInstance("Frame", {
-    Size=UDim2.new(0.34,0,1,0), BackgroundColor3=Color3.fromRGB(100,150,255),
-}, TraderConcSliderBG)
-NewInstance("UICorner",{CornerRadius=UDim.new(1,0)}, TraderConcFill)
-
-NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="📦 รายการไอเทม (แตะเพื่อเปิด/ปิด):",
-    TextColor3=Color3.fromRGB(220,220,220), Font=Enum.Font.GothamBold, TextSize=11,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=9,
-}, Panels.Trader)
-
-local ItemListContainer = NewInstance("ScrollingFrame", {
-    Size=UDim2.new(1,0,0,140), BackgroundColor3=Color3.fromRGB(24,24,30), BorderSizePixel=0,
-    ScrollBarThickness=4, CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, LayoutOrder=10,
-}, Panels.Trader)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,8)}, ItemListContainer)
-NewInstance("UIListLayout",{Padding=UDim.new(0,2), SortOrder=Enum.SortOrder.LayoutOrder}, ItemListContainer)
-
-local TraderRefreshButton = NewInstance("TextButton", {
-    Size=UDim2.new(1,0,0,34), BackgroundColor3=Color3.fromRGB(70,70,200), Text="🔄 รีเฟรชรายการไอเทม",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold, TextSize=12, LayoutOrder=11,
-}, Panels.Trader)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,8)}, TraderRefreshButton)
+Label(Panels.Trader,"📦 ไอเทม (แตะเพื่อเปิด/ปิด):",7,11,Color3.fromRGB(220,220,220),true)
+local ItemList = NewI("ScrollingFrame",{
+    Size=UDim2.new(1,0,0,130), BackgroundColor3=Color3.fromRGB(24,24,30),
+    BorderSizePixel=0, ScrollBarThickness=4,
+    CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, LayoutOrder=8,
+},Panels.Trader)
+NewI("UICorner",{CornerRadius=UDim.new(0,8)},ItemList)
+NewI("UIListLayout",{Padding=UDim.new(0,2),SortOrder=Enum.SortOrder.LayoutOrder},ItemList)
+local TraderRefresh = BigBtn(Panels.Trader,"🔄 รีเฟรชไอเทม",9,Color3.fromRGB(70,70,200))
 
 local function RefreshItemListUI()
-    for _, child in pairs(ItemListContainer:GetChildren()) do
-        if child:IsA("TextButton") then child:Destroy() end
+    for _,c in pairs(ItemList:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
     end
     for i, item in ipairs(ItemListCache) do
-        local enabled = ItemEnabled[item.Name] ~= false
-        local priceText = item.Price and (" | 💰" .. tostring(item.Price)) or ""
-        local btn = NewInstance("TextButton", {
-            Size = UDim2.new(1, -6, 0, 26),
-            BackgroundColor3 = enabled and Color3.fromRGB(40, 70, 45) or Color3.fromRGB(60, 40, 40),
-            Text = string.format("%s %s (คงเหลือ:%d)%s", enabled and "✅" or "❌", item.Name, item.Stock or 0, priceText),
-            TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.Gotham, TextSize = 10, LayoutOrder = i,
-        }, ItemListContainer)
-        NewInstance("UICorner", {CornerRadius = UDim.new(0, 6)}, btn)
-        btn.MouseButton1Click:Connect(function()
-            ItemEnabled[item.Name] = not (ItemEnabled[item.Name] ~= false)
-            RefreshItemListUI()
-            SaveSettings()
+        local en = ItemEnabled[item.Name]~=false
+        local b = NewI("TextButton",{
+            Size=UDim2.new(1,-6,0,24),
+            BackgroundColor3=en and Color3.fromRGB(40,70,45) or Color3.fromRGB(60,40,40),
+            Text=string.format("%s %s (x%d) 💰%s",
+                en and "✅" or "❌", item.Name,
+                item.Stock or 0, tostring(item.Price or "?")),
+            TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=10, LayoutOrder=i,
+        },ItemList)
+        NewI("UICorner",{CornerRadius=UDim.new(0,5)},b)
+        b.MouseButton1Click:Connect(function()
+            ItemEnabled[item.Name]=not (ItemEnabled[item.Name]~=false)
+            RefreshItemListUI(); SaveSettings()
         end)
     end
 end
@@ -591,465 +691,361 @@ end
 -- ==========================================
 -- 🎲 Roll Panel
 -- ==========================================
-NewInstance("TextLabel", {Size=UDim2.new(1,0,0,26), BackgroundTransparency=1, Text="🎲 Auto-Roll",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold, TextSize=18,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=1}, Panels.Roll)
+Label(Panels.Roll,"🎲 Auto-Roll",1,18,Color3.new(1,1,1),true)
+local RollToggle = BigBtn(Panels.Roll,"🔴 Roll: ปิด",2,Color3.fromRGB(200,50,50))
+Label(Panels.Roll,
+    RollAvailable and "🟢 พบระบบ Roll" or "⚠️ ไม่พบระบบ Roll",3,11,
+    RollAvailable and Color3.fromRGB(150,255,150) or Color3.fromRGB(255,150,100))
+local RollStats = Label(Panels.Roll,"📊 สุ่มไป: 0 | ซื้อได้: 0",4,11,Color3.fromRGB(150,200,255))
+local WalkLabel = Label(Panels.Roll,"⏳ รอ Animation: -",5,11,Color3.fromRGB(255,220,80))
 
-local RollToggleButton = NewInstance("TextButton", {
-    Size=UDim2.new(1,0,0,40), BackgroundColor3=Color3.fromRGB(200,50,50), Text="🔴 Roll: ปิดการทำงาน",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold, TextSize=14, LayoutOrder=2,
-}, Panels.Roll)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,8)}, RollToggleButton)
+-- Walk Wait slider
+local WalkCard = Card(Panels.Roll,6,52)
+Label(WalkCard,"⏱️ รอหลัง Roll (วินาที):",0,11,Color3.fromRGB(200,200,200),true)
+local WalkSliderBG = NewI("Frame",{
+    Size=UDim2.new(1,0,0,14), Position=UDim2.new(0,0,0,26),
+    BackgroundColor3=Color3.fromRGB(50,50,60),
+},WalkCard)
+NewI("UICorner",{CornerRadius=UDim.new(1,0)},WalkSliderBG)
+local WalkFill = NewI("Frame",{
+    Size=UDim2.new(RollSettings.WalkWaitTime/6,0,1,0),
+    BackgroundColor3=Color3.fromRGB(255,180,50),
+},WalkSliderBG)
+NewI("UICorner",{CornerRadius=UDim.new(1,0)},WalkFill)
+local WalkValLabel = NewI("TextLabel",{
+    Size=UDim2.new(1,0,0,14), Position=UDim2.new(0,0,0,26),
+    BackgroundTransparency=1, Text=string.format("%.1fs", RollSettings.WalkWaitTime),
+    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold,
+    TextSize=10, TextXAlignment=Enum.TextXAlignment.Right,
+},WalkCard)
 
-NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1,
-    Text = RollAvailable and "🟢 พบระบบ Roll ในเกมนี้" or "⚠️ ไม่พบระบบ Roll ในเกมนี้",
-    TextColor3 = RollAvailable and Color3.fromRGB(150,255,150) or Color3.fromRGB(255,150,100),
-    Font=Enum.Font.Gotham, TextSize=11, TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=3,
-}, Panels.Roll)
+-- Buy All toggle
+local BuyAllBtn = BigBtn(Panels.Roll,"🎯 ซื้อทุกตัว:ON",7,Color3.fromRGB(50,150,90))
 
-local RollStatsLabel = NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="📊 สุ่มไป: 0 | ซื้อได้: 0",
-    TextColor3=Color3.fromRGB(150,200,255), Font=Enum.Font.Gotham, TextSize=11,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=4,
-}, Panels.Roll)
-
-local RollSettingsRow = NewInstance("Frame", {Size=UDim2.new(1,0,0,30), BackgroundTransparency=1, LayoutOrder=5}, Panels.Roll)
-local RollTurboButton = NewInstance("TextButton", {
-    Size=UDim2.new(0.49,0,1,0), BackgroundColor3=Color3.fromRGB(60,60,75), Text="🐢 Turbo:OFF",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextScaled=true,
-}, RollSettingsRow)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, RollTurboButton)
-NewInstance("UIPadding",{PaddingLeft=UDim.new(0,3),PaddingRight=UDim.new(0,3)}, RollTurboButton)
-local BuyAllButton = NewInstance("TextButton", {
-    Size=UDim2.new(0.49,0,1,0), Position=UDim2.new(0.51,0,0,0), BackgroundColor3=Color3.fromRGB(50,150,90),
-    Text="🎯 ซื้อทุกตัว:ON", TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextScaled=true,
-}, RollSettingsRow)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, BuyAllButton)
-NewInstance("UIPadding",{PaddingLeft=UDim.new(0,3),PaddingRight=UDim.new(0,3)}, BuyAllButton)
-
-local RollSpeedLabel = NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="⚡ รอหลังสุ่มเสร็จก่อนสุ่มใหม่: 0.6s",
-    TextColor3=Color3.fromRGB(220,220,220), Font=Enum.Font.Gotham, TextSize=11,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=6,
-}, Panels.Roll)
-local RollSpeedSliderBG = NewInstance("Frame", {
-    Size=UDim2.new(1,0,0,14), BackgroundColor3=Color3.fromRGB(50,50,60), LayoutOrder=7,
-}, Panels.Roll)
-NewInstance("UICorner",{CornerRadius=UDim.new(1,0)}, RollSpeedSliderBG)
-local RollSpeedFill = NewInstance("Frame", {
-    Size=UDim2.new(0.17,0,1,0), BackgroundColor3=Color3.fromRGB(100,150,255),
-}, RollSpeedSliderBG)
-NewInstance("UICorner",{CornerRadius=UDim.new(1,0)}, RollSpeedFill)
-NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,26), BackgroundTransparency=1,
-    Text="💡 ถ้ายังเห็นบอทสุ่มก่อนตัวเดินถึง ให้ลาก Slider นี้ให้นานขึ้น",
-    TextColor3=Color3.fromRGB(140,140,150), Font=Enum.Font.Gotham, TextSize=10, TextWrapped=true,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=8,
-}, Panels.Roll)
-
-NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="✨ Mutation ที่ต้องการ (แตะเพื่อเปิด/ปิด):",
-    TextColor3=Color3.fromRGB(220,220,220), Font=Enum.Font.GothamBold, TextSize=11,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=9,
-}, Panels.Roll)
-
-local MutationGrid = NewInstance("Frame", {
-    Size=UDim2.new(1,0,0,0), BackgroundTransparency=1, AutomaticSize=Enum.AutomaticSize.Y, LayoutOrder=10,
-}, Panels.Roll)
-NewInstance("UIGridLayout", {
-    CellSize=UDim2.new(0,86,0,26), CellPadding=UDim2.new(0,4,0,4), SortOrder=Enum.SortOrder.LayoutOrder,
-}, MutationGrid)
-
-local MutButtons = {}
+-- Mutation grid
+Label(Panels.Roll,"✨ Mutation (แตะเปิด/ปิด):",8,11,Color3.fromRGB(220,220,220),true)
+local MutGrid = NewI("Frame",{
+    Size=UDim2.new(1,0,0,0), BackgroundTransparency=1,
+    AutomaticSize=Enum.AutomaticSize.Y, LayoutOrder=9,
+},Panels.Roll)
+NewI("UIGridLayout",{
+    CellSize=UDim2.new(0,90,0,26), CellPadding=UDim2.new(0,4,0,4),
+    SortOrder=Enum.SortOrder.LayoutOrder,
+},MutGrid)
 for i, mut in ipairs(MasterMutationList) do
-    local btn = NewInstance("TextButton", {
-        Text = (MutationEnabled[mut] and "✅ " or "❌ ")..mut, TextColor3=Color3.new(1,1,1),
-        Font=Enum.Font.Gotham, TextSize=10, LayoutOrder=i,
-        BackgroundColor3 = MutationEnabled[mut] and Color3.fromRGB(40,70,45) or Color3.fromRGB(60,40,40),
-    }, MutationGrid)
-    NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, btn)
-    btn.MouseButton1Click:Connect(function()
-        MutationEnabled[mut] = not MutationEnabled[mut]
-        btn.Text = (MutationEnabled[mut] and "✅ " or "❌ ")..mut
-        btn.BackgroundColor3 = MutationEnabled[mut] and Color3.fromRGB(40,70,45) or Color3.fromRGB(60,40,40)
+    local en = MutationEnabled[mut]
+    local b = NewI("TextButton",{
+        Text=(en and "✅ " or "❌ ")..mut,
+        TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=10, LayoutOrder=i,
+        BackgroundColor3=en and Color3.fromRGB(40,70,45) or Color3.fromRGB(60,40,40),
+    },MutGrid)
+    NewI("UICorner",{CornerRadius=UDim.new(0,6)},b)
+    b.MouseButton1Click:Connect(function()
+        MutationEnabled[mut]=not MutationEnabled[mut]
+        b.Text=(MutationEnabled[mut] and "✅ " or "❌ ")..mut
+        b.BackgroundColor3=MutationEnabled[mut] and Color3.fromRGB(40,70,45) or Color3.fromRGB(60,40,40)
         SaveSettings()
     end)
-    MutButtons[mut] = btn
 end
 
-NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="🏷️ กรองตาม Rarity (เรียนรู้เองจากการสุ่มจริง ค่อยๆ เต็มขึ้น):",
-    TextColor3=Color3.fromRGB(220,220,220), Font=Enum.Font.GothamBold, TextSize=11,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=11,
-}, Panels.Roll)
+-- ── ตัวละคร แยกตาม Rarity ──
+Label(Panels.Roll,"👤 ตัวละคร แยกตาม Rarity:",10,11,Color3.fromRGB(220,220,220),true)
+local SearchBox = NewI("TextBox",{
+    Size=UDim2.new(1,0,0,26), BackgroundColor3=Color3.fromRGB(40,40,50),
+    Text="", PlaceholderText="🔍 ค้นหาตัวละคร...",
+    TextColor3=Color3.new(1,1,1), PlaceholderColor3=Color3.fromRGB(150,150,150),
+    Font=Enum.Font.Gotham, TextSize=12, ClearTextOnFocus=false, LayoutOrder=11,
+},Panels.Roll)
+NewI("UICorner",{CornerRadius=UDim.new(0,6)},SearchBox)
+NewI("UIPadding",{PaddingLeft=UDim.new(0,8)},SearchBox)
 
-local RarityList = {"All","Common","Rare","Epic","Legendary","Mythic","Secret","God","Limited","Unknown"}
-local RarityColors = {
-    All=Color3.fromRGB(90,90,110), Common=Color3.fromRGB(60,140,70), Rare=Color3.fromRGB(50,110,190),
-    Epic=Color3.fromRGB(130,70,190), Legendary=Color3.fromRGB(200,140,40), Mythic=Color3.fromRGB(190,50,90),
-    Secret=Color3.fromRGB(80,40,110), God=Color3.fromRGB(190,180,90), Limited=Color3.fromRGB(40,160,160),
-    Unknown=Color3.fromRGB(70,70,80),
-}
-local RarityTabsGrid = NewInstance("Frame", {
-    Size=UDim2.new(1,0,0,0), BackgroundTransparency=1, AutomaticSize=Enum.AutomaticSize.Y, LayoutOrder=12,
-}, Panels.Roll)
-NewInstance("UIGridLayout", {
-    CellSize=UDim2.new(0,78,0,24), CellPadding=UDim2.new(0,4,0,4), SortOrder=Enum.SortOrder.LayoutOrder,
-}, RarityTabsGrid)
-local selectedRarityTab = "All"
-local RarityTabButtons = {}
-for i, rarity in ipairs(RarityList) do
-    local btn = NewInstance("TextButton", {
-        Text = rarity, TextColor3 = (rarity == "All") and Color3.fromRGB(20,20,20) or Color3.new(1,1,1),
-        Font=Enum.Font.GothamBold, TextSize=10, LayoutOrder=i,
-        BackgroundColor3 = (rarity == "All") and Color3.new(1,1,1) or (RarityColors[rarity] or Color3.fromRGB(60,60,75)),
-    }, RarityTabsGrid)
-    NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, btn)
-    RarityTabButtons[rarity] = btn
-end
+-- Select All / Deselect All
+local SelRow = NewI("Frame",{Size=UDim2.new(1,0,0,26),BackgroundTransparency=1,LayoutOrder=12},Panels.Roll)
+local SelAll = NewI("TextButton",{
+    Size=UDim2.new(0.49,0,1,0), BackgroundColor3=Color3.fromRGB(50,150,90),
+    Text="✅ เลือกทั้งหมด", TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=11,
+},SelRow)
+NewI("UICorner",{CornerRadius=UDim.new(0,6)},SelAll)
+local SelNone = NewI("TextButton",{
+    Size=UDim2.new(0.49,0,1,0), Position=UDim2.new(0.51,0,0,0),
+    BackgroundColor3=Color3.fromRGB(150,60,60),
+    Text="❌ ไม่เลือก", TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=11,
+},SelRow)
+NewI("UICorner",{CornerRadius=UDim.new(0,6)},SelNone)
 
-local SearchBox = NewInstance("TextBox", {
-    Size=UDim2.new(1,0,0,28), BackgroundColor3=Color3.fromRGB(40,40,50), Text="",
-    PlaceholderText="🔍 ค้นหาตัวละคร...", TextColor3=Color3.new(1,1,1),
-    PlaceholderColor3=Color3.fromRGB(150,150,150), Font=Enum.Font.Gotham, TextSize=12,
-    ClearTextOnFocus=false, LayoutOrder=13,
-}, Panels.Roll)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, SearchBox)
-NewInstance("UIPadding",{PaddingLeft=UDim.new(0,8)}, SearchBox)
+-- Char list container (scroll)
+local CharScroll = NewI("ScrollingFrame",{
+    Size=UDim2.new(1,0,0,220), BackgroundColor3=Color3.fromRGB(22,22,28),
+    BorderSizePixel=0, ScrollBarThickness=4,
+    CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, LayoutOrder=13,
+},Panels.Roll)
+NewI("UICorner",{CornerRadius=UDim.new(0,8)},CharScroll)
+NewI("UIListLayout",{Padding=UDim.new(0,2),SortOrder=Enum.SortOrder.LayoutOrder},CharScroll)
 
-local CharSelectRow = NewInstance("Frame", {Size=UDim2.new(1,0,0,26), BackgroundTransparency=1, LayoutOrder=14}, Panels.Roll)
-local SelectAllButton = NewInstance("TextButton", {
-    Size=UDim2.new(0.49,0,1,0), BackgroundColor3=Color3.fromRGB(50,150,90), Text="✅ เลือกทั้งหมด",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=11,
-}, CharSelectRow)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, SelectAllButton)
-local DeselectAllButton = NewInstance("TextButton", {
-    Size=UDim2.new(0.49,0,1,0), Position=UDim2.new(0.51,0,0,0), BackgroundColor3=Color3.fromRGB(150,60,60),
-    Text="❌ ไม่เลือกเลย", TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=11,
-}, CharSelectRow)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, DeselectAllButton)
-
-local CharListContainer = NewInstance("ScrollingFrame", {
-    Size=UDim2.new(1,0,0,200), BackgroundColor3=Color3.fromRGB(24,24,30), BorderSizePixel=0,
-    ScrollBarThickness=4, CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, LayoutOrder=15,
-}, Panels.Roll)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,8)}, CharListContainer)
-NewInstance("UIListLayout",{Padding=UDim.new(0,2), SortOrder=Enum.SortOrder.LayoutOrder}, CharListContainer)
-
+-- ลำดับ Rarity สำหรับแสดงหัวข้อ
+local RarityOrder = {"Common","Rare","Epic","Legendary","Mythic","Secret","God","Limited"}
 local CharButtons = {}
-local function StyleToggle(btn, enabled)
-    btn.BackgroundColor3 = enabled and Color3.fromRGB(40,70,45) or Color3.fromRGB(60,40,40)
-end
-local function GetCharDisplayText(name)
-    local rarity = CharacterRarity[name]
-    local tag = rarity and (" ["..rarity.."]") or ""
-    return (CharacterEnabled[name] and "✅ " or "❌ ")..name..tag
-end
-local function BuildCharList()
-    for i, name in ipairs(MasterCharacterList) do
-        local btn = NewInstance("TextButton", {
-            Size=UDim2.new(1,-6,0,24), Text=GetCharDisplayText(name),
-            TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=11,
-            LayoutOrder=i, TextXAlignment=Enum.TextXAlignment.Left,
-        }, CharListContainer)
-        NewInstance("UICorner",{CornerRadius=UDim.new(0,5)}, btn)
-        NewInstance("UIPadding",{PaddingLeft=UDim.new(0,6)}, btn)
-        StyleToggle(btn, CharacterEnabled[name])
-        btn.MouseButton1Click:Connect(function()
-            CharacterEnabled[name] = not CharacterEnabled[name]
-            StyleToggle(btn, CharacterEnabled[name])
-            if ApplyCharacterFilters then ApplyCharacterFilters() end
-            SaveSettings()
-        end)
-        CharButtons[name] = btn
-    end
-end
-BuildCharList()
+local layoutIdx = 0
 
--- ฟังก์ชันกรองรวม: ค้นหาข้อความ + แท็บ Rarity ที่เลือก
-ApplyCharacterFilters = function()
-    local query = string.lower(SearchBox.Text)
-    for name, btn in pairs(CharButtons) do
-        btn.Text = GetCharDisplayText(name)
-        local matchesSearch = (query == "") or (string.find(string.lower(name), query, 1, true) ~= nil)
-        local rarity = CharacterRarity[name] or "Unknown"
-        local matchesRarity = (selectedRarityTab == "All") or (rarity == selectedRarityTab)
-        btn.Visible = matchesSearch and matchesRarity
-    end
-end
+for _, rarity in ipairs(RarityOrder) do
+    local rInfo = RarityData[rarity] or {}
+    -- หัวข้อ Rarity
+    layoutIdx = layoutIdx + 1
+    local header = NewI("TextLabel",{
+        Size=UDim2.new(1,-6,0,22),
+        BackgroundColor3=Color3.fromRGB(30,30,40),
+        Text=string.format("%s %s", rInfo.icon or "", rarity),
+        TextColor3=rInfo.color or Color3.new(1,1,1),
+        Font=Enum.Font.GothamBold, TextSize=11,
+        TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=layoutIdx,
+    },CharScroll)
+    NewI("UICorner",{CornerRadius=UDim.new(0,5)},header)
+    NewI("UIPadding",{PaddingLeft=UDim.new(0,8)},header)
 
-SearchBox:GetPropertyChangedSignal("Text"):Connect(ApplyCharacterFilters)
-
-for rarity, btn in pairs(RarityTabButtons) do
-    btn.MouseButton1Click:Connect(function()
-        selectedRarityTab = rarity
-        for r, b in pairs(RarityTabButtons) do
-            local isSel = (r == rarity)
-            b.BackgroundColor3 = isSel and Color3.new(1,1,1) or (RarityColors[r] or Color3.fromRGB(60,60,75))
-            b.TextColor3 = isSel and Color3.fromRGB(20,20,20) or Color3.new(1,1,1)
+    -- ตัวละครในหมวดนี้
+    for name, r in pairs(CharRarity) do
+        if r == rarity then
+            layoutIdx = layoutIdx + 1
+            local en = CharacterEnabled[name]
+            local b = NewI("TextButton",{
+                Size=UDim2.new(1,-6,0,22),
+                BackgroundColor3=en and Color3.fromRGB(35,60,38) or Color3.fromRGB(55,35,35),
+                Text=(en and "✅ " or "❌ ")..name,
+                TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=11,
+                TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=layoutIdx,
+            },CharScroll)
+            NewI("UICorner",{CornerRadius=UDim.new(0,5)},b)
+            NewI("UIPadding",{PaddingLeft=UDim.new(0,16)},b)
+            b.MouseButton1Click:Connect(function()
+                CharacterEnabled[name]=not CharacterEnabled[name]
+                b.Text=(CharacterEnabled[name] and "✅ " or "❌ ")..name
+                b.BackgroundColor3=CharacterEnabled[name] and Color3.fromRGB(35,60,38) or Color3.fromRGB(55,35,35)
+                SaveSettings()
+            end)
+            CharButtons[name]=b
         end
-        ApplyCharacterFilters()
-    end)
+    end
 end
+
+SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local q = string.lower(SearchBox.Text)
+    for name, b in pairs(CharButtons) do
+        b.Visible = q=="" or string.find(string.lower(name),q,1,true)~=nil
+    end
+end)
 
 -- ==========================================
 -- 🛡️ AFK Panel
 -- ==========================================
-NewInstance("TextLabel", {Size=UDim2.new(1,0,0,26), BackgroundTransparency=1, Text="🛡️ Anti-AFK",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold, TextSize=18,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=1}, Panels.AFK)
-
-local AFKToggleButton = NewInstance("TextButton", {
-    Size=UDim2.new(1,0,0,40), BackgroundColor3=Color3.fromRGB(50,150,90), Text="🛡️ AFK Protection: ON",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold, TextSize=14, LayoutOrder=2,
-}, Panels.AFK)
-NewInstance("UICorner",{CornerRadius=UDim.new(0,8)}, AFKToggleButton)
-
-local AFKStatusLabel = NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="สถานะ: -",
-    TextColor3=Color3.fromRGB(150,150,150), Font=Enum.Font.Gotham, TextSize=11,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=3,
-}, Panels.AFK)
-
-NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,60), BackgroundTransparency=1,
-    Text="วิธีการ: จำลองการกดเปิด-ปิดแชท (Slash → Escape) เป็น keyboard input จริง Roblox จะนับเป็น activity แน่นอนกว่าวิธี VirtualUser ธรรมดา ทำงานทั้งตอน Roblox ตรวจเจอ Idle และเชิงรุกทุก 90 วินาที",
-    TextColor3=Color3.fromRGB(160,160,170), Font=Enum.Font.Gotham, TextSize=11,
-    TextWrapped=true, TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=4,
-}, Panels.AFK)
+Label(Panels.AFK,"🛡️ Anti-AFK",1,18,Color3.new(1,1,1),true)
+local AFKToggle = BigBtn(Panels.AFK,"🛡️ AFK Protection: ON",2,Color3.fromRGB(50,150,90))
+local AFKStatus = Label(Panels.AFK,"สถานะ: -",3,11,Color3.fromRGB(150,150,150))
+Label(Panels.AFK,"วิธี: จำลองกดเปิด-ปิดแชท (Slash→Escape) ทุก 90 วิ",4,11,Color3.fromRGB(160,160,170))
 
 -- ==========================================
 -- 📜 Logs Panel
 -- ==========================================
-NewInstance("TextLabel", {Size=UDim2.new(1,0,0,26), BackgroundTransparency=1, Text="📜 ประวัติการซื้อทั้งหมด",
-    TextColor3=Color3.new(1,1,1), Font=Enum.Font.GothamBold, TextSize=18,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=1}, Panels.Logs)
-
+Label(Panels.Logs,"📜 ประวัติการซื้อ",1,18,Color3.new(1,1,1),true)
 local function RefreshLogUI()
-    for _, child in pairs(Panels.Logs:GetChildren()) do
-        if child:IsA("TextLabel") and child.LayoutOrder > 1 then child:Destroy() end
+    for _,c in pairs(Panels.Logs:GetChildren()) do
+        if c:IsA("TextLabel") and c.LayoutOrder>1 then c:Destroy() end
     end
     for i, entry in ipairs(PurchaseLog) do
-        NewInstance("TextLabel", {
-            Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text=entry.Text,
-            TextColor3=entry.Color, Font=Enum.Font.Gotham, TextSize=11,
+        NewI("TextLabel",{
+            Size=UDim2.new(1,0,0,15), BackgroundTransparency=1,
+            Text=entry.Text, TextColor3=entry.Color,
+            Font=Enum.Font.Gotham, TextSize=11,
             TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=i+1,
-        }, Panels.Logs)
+        },Panels.Logs)
     end
 end
 
 -- ==========================================
--- 🖱️ ระบบลาก UI
+-- 🖱️ Drag
 -- ==========================================
 local dragging, dragInput, dragStart, startPos
-TopBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging, dragStart, startPos = true, input.Position, MainFrame.Position
-        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+TopBar.InputBegan:Connect(function(inp)
+    if inp.UserInputType==Enum.UserInputType.MouseButton1 then
+        dragging,dragStart,startPos=true,inp.Position,MainFrame.Position
+        inp.Changed:Connect(function()
+            if inp.UserInputState==Enum.UserInputState.End then dragging=false end
+        end)
     end
 end)
-TopBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
+TopBar.InputChanged:Connect(function(inp)
+    if inp.UserInputType==Enum.UserInputType.MouseMovement then dragInput=inp end
 end)
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+UserInputService.InputChanged:Connect(function(inp)
+    if inp==dragInput and dragging then
+        local d=inp.Position-dragStart
+        MainFrame.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
     end
 end)
 
 -- ==========================================
--- 🔘 ปุ่มควบคุมต่างๆ
+-- 🔘 Button Events
 -- ==========================================
-TraderToggleButton.MouseButton1Click:Connect(function()
-    TraderSettings.AutoBuyEnabled = not TraderSettings.AutoBuyEnabled
+TraderToggle.MouseButton1Click:Connect(function()
+    TraderSettings.AutoBuyEnabled=not TraderSettings.AutoBuyEnabled
     if TraderSettings.AutoBuyEnabled then
-        TraderToggleButton.BackgroundColor3 = Color3.fromRGB(50,200,80)
-        TraderToggleButton.Text = "🟢 Trader: กำลังทำงาน"
-        if TraderAvailable and workspace:GetAttribute("TraderEventActive") == true then
+        TraderToggle.BackgroundColor3=Color3.fromRGB(50,200,80)
+        TraderToggle.Text="🟢 Trader: กำลังทำงาน"
+        if TraderAvailable and workspace:GetAttribute("TraderEventActive")==true then
             task.spawn(function()
-                while workspace:GetAttribute("TraderEventActive") == true and TraderSettings.AutoBuyEnabled do
-                    AutoBuyItems()
-                    task.wait(TraderSettings.RecheckInterval)
+                while workspace:GetAttribute("TraderEventActive")==true and TraderSettings.AutoBuyEnabled do
+                    AutoBuyItems(); task.wait(TraderSettings.RecheckInterval)
                 end
             end)
         end
     else
-        TraderToggleButton.BackgroundColor3 = Color3.fromRGB(200,50,50)
-        TraderToggleButton.Text = "🔴 Trader: ปิดการทำงาน"
+        TraderToggle.BackgroundColor3=Color3.fromRGB(200,50,50)
+        TraderToggle.Text="🔴 Trader: ปิด"
     end
 end)
 
-TraderSortButton.MouseButton1Click:Connect(function()
-    if TraderSettings.SortMode == "StockAsc" then
-        TraderSettings.SortMode = "PriceDesc"; TraderSortButton.Text = "💎 แพงก่อน"
-    elseif TraderSettings.SortMode == "PriceDesc" then
-        TraderSettings.SortMode = "None"; TraderSortButton.Text = "📋 ลำดับเดิม"
+TraderSort.MouseButton1Click:Connect(function()
+    if TraderSettings.SortMode=="StockAsc" then
+        TraderSettings.SortMode="PriceDesc"; TraderSort.Text="💎 แพงก่อน"
+    elseif TraderSettings.SortMode=="PriceDesc" then
+        TraderSettings.SortMode="None"; TraderSort.Text="📋 ลำดับเดิม"
     else
-        TraderSettings.SortMode = "StockAsc"; TraderSortButton.Text = "🎯 หายากก่อน"
+        TraderSettings.SortMode="StockAsc"; TraderSort.Text="🎯 หายากก่อน"
     end
     SaveSettings()
 end)
 
-TraderTurboButton.MouseButton1Click:Connect(function()
-    TraderSettings.TurboMode = not TraderSettings.TurboMode
-    TraderTurboButton.Text = TraderSettings.TurboMode and "🚀 Turbo:ON" or "🐢 Turbo:OFF"
-    TraderTurboButton.BackgroundColor3 = TraderSettings.TurboMode and Color3.fromRGB(200,80,50) or Color3.fromRGB(60,60,75)
+TraderTurbo.MouseButton1Click:Connect(function()
+    TraderSettings.TurboMode=not TraderSettings.TurboMode
+    TraderTurbo.Text=TraderSettings.TurboMode and "🚀 Turbo:ON" or "🐢 Turbo:OFF"
+    TraderTurbo.BackgroundColor3=TraderSettings.TurboMode and Color3.fromRGB(200,80,50) or Color3.fromRGB(60,60,75)
     SaveSettings()
 end)
 
-local draggingConc = false
-TraderConcSliderBG.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then draggingConc = true end
-end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then draggingConc = false end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if draggingConc and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local mouseX = UserInputService:GetMouseLocation().X
-        local percent = math.clamp((mouseX - TraderConcSliderBG.AbsolutePosition.X) / TraderConcSliderBG.AbsoluteSize.X, 0, 1)
-        TraderConcFill.Size = UDim2.new(percent, 0, 1, 0)
-        local value = math.floor(1 + percent * 9)
-        TraderSettings.MaxConcurrentItems = value
-        TraderConcLabel.Text = string.format("⚡ ซื้อพร้อมกัน: %d ไอเทม", value)
-        SaveSettings()
-    end
-end)
-
-TraderRefreshButton.MouseButton1Click:Connect(function()
+TraderRefresh.MouseButton1Click:Connect(function()
     if not TraderAvailable then return end
-    TraderRefreshButton.Text = "🔄 กำลังรีเฟรช..."
-    local ok, stockData = pcall(function() return GetStock:InvokeServer() end)
-    if ok and stockData and stockData.Items then
-        ItemListCache = stockData.Items
-        for _, item in ipairs(stockData.Items) do
-            if ItemEnabled[item.Name] == nil then ItemEnabled[item.Name] = true end
-        end
-        RefreshItemListUI()
-    end
-    task.wait(0.3)
-    TraderRefreshButton.Text = "🔄 รีเฟรชรายการไอเทม"
+    TraderRefresh.Text="🔄 กำลังรีเฟรช..."
+    RefreshItemListCache(function() RefreshItemListUI() end)
+    task.wait(0.5); TraderRefresh.Text="🔄 รีเฟรชไอเทม"
 end)
 
-RollToggleButton.MouseButton1Click:Connect(function()
-    RollSettings.AutoRoll = not RollSettings.AutoRoll
-    RollToggleButton.BackgroundColor3 = RollSettings.AutoRoll and Color3.fromRGB(50,200,80) or Color3.fromRGB(200,50,50)
-    RollToggleButton.Text = RollSettings.AutoRoll and "🟢 Roll: กำลังทำงาน" or "🔴 Roll: ปิดการทำงาน"
+RollToggle.MouseButton1Click:Connect(function()
+    RollSettings.AutoRoll=not RollSettings.AutoRoll
+    RollToggle.BackgroundColor3=RollSettings.AutoRoll and Color3.fromRGB(50,200,80) or Color3.fromRGB(200,50,50)
+    RollToggle.Text=RollSettings.AutoRoll and "🟢 Roll: กำลังทำงาน" or "🔴 Roll: ปิด"
 end)
 
-RollTurboButton.MouseButton1Click:Connect(function()
-    RollSettings.TurboMode = not RollSettings.TurboMode
-    RollTurboButton.Text = RollSettings.TurboMode and "🚀 Turbo:ON" or "🐢 Turbo:OFF"
-    RollTurboButton.BackgroundColor3 = RollSettings.TurboMode and Color3.fromRGB(200,80,50) or Color3.fromRGB(60,60,75)
+BuyAllBtn.MouseButton1Click:Connect(function()
+    RollSettings.BuyAllMatches=not RollSettings.BuyAllMatches
+    BuyAllBtn.Text=RollSettings.BuyAllMatches and "🎯 ซื้อทุกตัว:ON" or "1️⃣ ซื้อตัวแรก:ON"
+    BuyAllBtn.BackgroundColor3=RollSettings.BuyAllMatches and Color3.fromRGB(50,150,90) or Color3.fromRGB(150,90,50)
     SaveSettings()
 end)
 
-BuyAllButton.MouseButton1Click:Connect(function()
-    RollSettings.BuyAllMatches = not RollSettings.BuyAllMatches
-    BuyAllButton.Text = RollSettings.BuyAllMatches and "🎯 ซื้อทุกตัว:ON" or "1️⃣ ซื้อตัวแรก:ON"
-    BuyAllButton.BackgroundColor3 = RollSettings.BuyAllMatches and Color3.fromRGB(50,150,90) or Color3.fromRGB(150,90,50)
-    SaveSettings()
+-- Walk Wait Slider
+local draggingWalk = false
+WalkSliderBG.InputBegan:Connect(function(inp)
+    if inp.UserInputType==Enum.UserInputType.MouseButton1 then draggingWalk=true end
 end)
-
-local draggingSpeed = false
-RollSpeedSliderBG.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then draggingSpeed = true end
+UserInputService.InputEnded:Connect(function(inp)
+    if inp.UserInputType==Enum.UserInputType.MouseButton1 then draggingWalk=false end
 end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then draggingSpeed = false end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if draggingSpeed and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local mouseX = UserInputService:GetMouseLocation().X
-        local percent = math.clamp((mouseX - RollSpeedSliderBG.AbsolutePosition.X) / RollSpeedSliderBG.AbsoluteSize.X, 0, 1)
-        RollSpeedFill.Size = UDim2.new(percent, 0, 1, 0)
-        local value = math.floor((0.1 + percent * 1.9) * 100) / 100
-        RollSettings.RollDelay = value
-        RollSpeedLabel.Text = string.format("⚡ ความไว Roll: %.2fs", value)
+UserInputService.InputChanged:Connect(function(inp)
+    if draggingWalk and inp.UserInputType==Enum.UserInputType.MouseMovement then
+        local mx = UserInputService:GetMouseLocation().X
+        local pct = math.clamp((mx-WalkSliderBG.AbsolutePosition.X)/WalkSliderBG.AbsoluteSize.X,0,1)
+        local val = math.floor((0.5+pct*5.5)*10)/10  -- 0.5s ถึง 6s
+        RollSettings.WalkWaitTime=val
+        WalkFill.Size=UDim2.new(pct,0,1,0)
+        WalkValLabel.Text=string.format("%.1fs",val)
         SaveSettings()
     end
 end)
 
-SelectAllButton.MouseButton1Click:Connect(function()
-    for name, btn in pairs(CharButtons) do
-        CharacterEnabled[name] = true; btn.Text = "✅ "..name; StyleToggle(btn, true)
-    end
-    SaveSettings()
+SelAll.MouseButton1Click:Connect(function()
+    for name, b in pairs(CharButtons) do
+        CharacterEnabled[name]=true
+        b.Text="✅ "..name
+        b.BackgroundColor3=Color3.fromRGB(35,60,38)
+    end; SaveSettings()
 end)
-DeselectAllButton.MouseButton1Click:Connect(function()
-    for name, btn in pairs(CharButtons) do
-        CharacterEnabled[name] = false; btn.Text = "❌ "..name; StyleToggle(btn, false)
-    end
-    SaveSettings()
+SelNone.MouseButton1Click:Connect(function()
+    for name, b in pairs(CharButtons) do
+        CharacterEnabled[name]=false
+        b.Text="❌ "..name
+        b.BackgroundColor3=Color3.fromRGB(55,35,35)
+    end; SaveSettings()
 end)
 
-AFKToggleButton.MouseButton1Click:Connect(function()
-    AFKSettings.Enabled = not AFKSettings.Enabled
+AFKToggle.MouseButton1Click:Connect(function()
+    AFKSettings.Enabled=not AFKSettings.Enabled
     if AFKSettings.Enabled then
-        AFKToggleButton.Text = "🛡️ AFK Protection: ON"
-        AFKToggleButton.BackgroundColor3 = Color3.fromRGB(50,150,90)
+        AFKToggle.Text="🛡️ AFK Protection: ON"
+        AFKToggle.BackgroundColor3=Color3.fromRGB(50,150,90)
         PreventAFK()
     else
-        AFKToggleButton.Text = "❌ AFK Protection: OFF"
-        AFKToggleButton.BackgroundColor3 = Color3.fromRGB(150,60,60)
+        AFKToggle.Text="❌ AFK Protection: OFF"
+        AFKToggle.BackgroundColor3=Color3.fromRGB(150,60,60)
     end
     SaveSettings()
 end)
 
-CloseButton.MouseButton1Click:Connect(function()
-    TraderSettings.AutoBuyEnabled = false
-    RollSettings.AutoRoll = false
-    SaveSettings()
-    ScreenGui:Destroy()
+CloseBtn.MouseButton1Click:Connect(function()
+    TraderSettings.AutoBuyEnabled=false
+    RollSettings.AutoRoll=false
+    SaveSettings(); ScreenGui:Destroy()
 end)
 
 -- ==========================================
--- 🔄 อัพเดทสถานะแบบ Real-time
+-- 🔄 Realtime Update
 -- ==========================================
 local lastLogCount = 0
 task.spawn(function()
     while true do
         task.wait(0.5)
-        local money, currencyName = GetCurrency()
-        if money then TraderCurrencyLabel.Text = string.format("💰 %s: %s", currencyName, tostring(money)) end
-        TraderStatsLabel.Text = string.format("📊 ซื้อแล้ว: %d ชิ้น | ใช้ไป: %s", TraderBought, tostring(TraderSpent))
-        RollStatsLabel.Text = string.format("📊 สุ่มไป: %d | ซื้อได้: %d", RollCount, RollBought)
-        AFKStatusLabel.Text = AFKSettings.Enabled
-            and string.format("✅ ทำงานอยู่ (ล่าสุด %ds ที่แล้ว)", math.floor(os.clock() - lastAFKAction))
+
+        -- Trader
+        local money, cname = GetCurrency()
+        if money then TraderMoney.Text=string.format("💰 %s: %s", cname, tostring(money)) end
+        TraderStats.Text=string.format("📊 ซื้อแล้ว: %d | ใช้ไป: %s", TraderBought, tostring(TraderSpent))
+
+        -- Roll
+        RollStats.Text=string.format("📊 สุ่มไป: %d | ซื้อได้: %d", RollCount, RollBought)
+        if isWaitingWalk then
+            WalkLabel.Text="⏳ รอ Animation เดิน..."
+            WalkLabel.TextColor3=Color3.fromRGB(255,150,50)
+            WalkStatusLabel.Text="⏳ รอเดิน..."
+        else
+            WalkLabel.Text="✅ พร้อมสุ่มใหม่"
+            WalkLabel.TextColor3=Color3.fromRGB(100,255,150)
+            WalkStatusLabel.Text=""
+        end
+
+        -- AFK
+        AFKStatus.Text=AFKSettings.Enabled
+            and string.format("✅ ทำงานอยู่ (ล่าสุด %ds ที่แล้ว)", math.floor(os.clock()-lastAFKAction))
             or "❌ ปิดอยู่"
 
-        DashTraderCard.Text = string.format("🛒 Trader Bot\n%s | %s",
-            TraderSettings.AutoBuyEnabled and "🟢 กำลังทำงาน" or "🔴 ปิดอยู่",
-            TraderAvailable and "พบระบบในเกม ✅" or "ไม่พบระบบในเกม ⚠️")
-        DashRollCard.Text = string.format("🎲 Roll Bot\n%s | %s",
-            RollSettings.AutoRoll and "🟢 กำลังทำงาน" or "🔴 ปิดอยู่",
-            RollAvailable and "พบระบบในเกม ✅" or "ไม่พบระบบในเกม ⚠️")
-        DashAFKCard.Text = string.format("🛡️ AFK: %s | รวมซื้อ: %d ชิ้น (Trader) + %d ตัว (Roll)",
+        -- Dashboard cards
+        DashTrader.Text=string.format("🛒 Trader\n%s | %s",
+            TraderSettings.AutoBuyEnabled and "🟢 กำลังทำงาน" or "🔴 ปิด",
+            TraderAvailable and "✅ พบระบบ" or "⚠️ ไม่พบ")
+        DashRoll.Text=string.format("🎲 Roll\n%s | %s | รอ %.1fs",
+            RollSettings.AutoRoll and "🟢 กำลังทำงาน" or "🔴 ปิด",
+            RollAvailable and "✅ พบระบบ" or "⚠️ ไม่พบ",
+            RollSettings.WalkWaitTime)
+        DashAFK.Text=string.format("🛡️ AFK: %s | ซื้อ: %d (Trader) %d (Roll)",
             AFKSettings.Enabled and "ON" or "OFF", TraderBought, RollBought)
 
-        if #PurchaseLog ~= lastLogCount then
-            RefreshLogUI()
-            lastLogCount = #PurchaseLog
+        -- Logs
+        if #PurchaseLog~=lastLogCount then
+            RefreshLogUI(); lastLogCount=#PurchaseLog
         end
     end
 end)
 
+-- โหลดไอเทมครั้งแรก
 if TraderAvailable then
-    task.spawn(function()
-        task.wait(2)
-        pcall(function()
-            local stockData = GetStock:InvokeServer()
-            if stockData and stockData.Items then
-                ItemListCache = stockData.Items
-                for _, item in ipairs(stockData.Items) do
-                    if ItemEnabled[item.Name] == nil then ItemEnabled[item.Name] = true end
-                end
-                RefreshItemListUI()
-            end
-        end)
-    end)
+    RefreshItemListCache(function() RefreshItemListUI() end)
 end
 
 ScreenGui.Parent = PlayerGui
