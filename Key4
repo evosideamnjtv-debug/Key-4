@@ -1,248 +1,219 @@
 -- ==========================================
--- 🎮 ProHub v2.1 - Auto-Buy Trader + Proximity Auto-Roll
+-- 🚀 Anime To Fight - Complete Auto Roll & Buy Script
 -- ==========================================
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local HttpService = game:GetService("HttpService")
-local RunService = game:GetService("RunService")
-
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local HasFileSystem = (writefile and readfile and isfile) and true or false
-local SaveFileName = "ProHub_Settings.json"
-
-local function SafeWaitForChild(parent, name, timeout)
-    timeout = timeout or 5
-    if not parent then return nil end
-    local existing = parent:FindFirstChild(name)
-    if existing then return existing end
-    local start = tick()
-    while tick() - start < timeout do
-        local found = parent:FindFirstChild(name)
-        if found then return found end
-        task.wait(0.1)
-    end
-    return nil
-end
-
--- ==========================================
--- 📊 ข้อมูล Rarity & ตัวละคร
--- ==========================================
-local RarityData = {
-    Common   = { color = Color3.fromRGB(81,255,0),    icon = "⬜", order = 1 },
-    Rare     = { color = Color3.fromRGB(0,153,255),   icon = "🟦", order = 2 },
-    Epic     = { color = Color3.fromRGB(119,0,255),   icon = "🟣", order = 3 },
-    Legendary= { color = Color3.fromRGB(255,190,0),   icon = "🟡", order = 4 },
-    Mythic   = { color = Color3.fromRGB(255,0,80),    icon = "🔴", order = 5 },
-    Secret   = { color = Color3.fromRGB(130,0,180),   icon = "🟤", order = 6 },
-    God      = { color = Color3.fromRGB(255,255,120), icon = "⭐", order = 7 },
-    Limited  = { color = Color3.fromRGB(0,255,200),   icon = "💎", order = 8 },
-}
-
-local CharRarity = {
-    Zoro="Common", Krillin="Common", Luffy="Common", Ussop="Common", Itadori="Common", ["Rock Lee"]="Common",
-    Maki="Rare", Goku="Rare", Sakura="Rare", Mob="Rare", Junwoo="Rare", Choji="Rare",
-    Tanjiro="Epic", Shinra="Epic", Guts="Epic", Manji="Epic", Ban="Epic", Piccolo="Epic", Renji="Epic", Shikamaru="Epic",
-    Erwin="Legendary", Sukuna="Legendary", Gojo="Legendary", Naruto="Legendary", Saitama="Legendary", Trunks="Legendary", Grimmjow="Legendary", Zenitsu="Legendary", Nanami="Legendary", Mage="Legendary", Knight="Legendary",
-    Stark="Mythic", Kokushibo="Mythic", ["Simo Hayha"]="Mythic", Hoshina="Mythic", Ace="Mythic", Broly="Mythic", Orihime="Mythic", Rengoku="Mythic", Toji="Mythic", Kashimo="Mythic", Kakashi="Mythic", Tobi="Mythic", Kang="Mythic", Akaza="Mythic", Kisuke="Mythic", Yoruichi="Mythic",
-    Dio="Secret", Frieren="Secret", Yhwatch="Secret", Jiren="Secret", Byakuya="Secret", Ulquiorra="Secret", Kenpachi="Secret", Gyomei="Secret", Megumi="Secret", Yuta="Secret", Hakari="Secret", Mojuro="Secret", Sasuke="Secret", Orochimaru="Secret", Jiraiya="Secret", Tsunade="Secret", ["Baek Human Form"]="Secret", ["Choi"]="Secret", ChaHaein="Secret", ["Naruto (Six Path)"]="Secret", Douma="Secret", Igris="Secret", ["Junwoo (Snow)"]="Secret", ["Sakura (HundredSeal)"]="Secret", ["Sasuke (Adult)"]="Secret", Magellan="Secret", ["Shadow Igris"]="Secret", Tusk="Secret", Iron="Secret", Beru="Secret",
-    Beerus="God", Rimuru="God", Whis="God", Yamamoto="God", ["Aizen (Transcendent)"]="God", Ichigo="God", Dabura="God", Madara="God", Hashirama="God", Hwan="God", ["Sung (Monarch)"]="God", ["Gojo (Shibuya)"]="God", ["Yuji (Modulo)"]="God", ["Madara (Six Path)"]="God", ["Madara (Limbo)"]="God", Doflamingo="God", Boros="God", ["Boros v2"]="God", GunDevil="God", Escanor="God", ["Enraged Escanor"]="God", ["Demon Meliodas"]="God", ["Goku (Black)"]="God", ["Sukuna (Heian)"]="God", Muzan="God", ["Muzan (Evolved)"]="God", Shanks="God", Ainz="God", ["Death Knight"]="God", Yorichi="God", JiraiyaFrog="God", ["Madara (Clone)"]="God",
-    Entoma="Limited", ["Spider (Entoma)"]="Limited", ["Hakari (JackPot)"]="Limited", Shalltear="Limited", Juuzou="Limited", Milim="Limited", Tatsumaki="Limited", Yugi="Limited", DarkMagician="Limited", DarkMagicianGirl="Limited", Akainu="Limited", Kizaru="Limited", Kuzan="Limited", Okurun="Limited", Yor="Limited", Lelouch="Limited", ["Britain Army"]="Limited", ["Cosmic Garou"]="Limited", Mash="Limited", Genos="Limited", Julius="Limited", Kaneki="Limited", Denji="Limited", Law="Limited", Sakamoto="Limited", ["Sakamoto (Fit)"]="Limited", Frieza="Limited", ["Black Frieza"]="Limited", Yujiro="Limited", ["Saitama (Serious)"]="Limited", Albedo="Limited", Katakuri="Limited", Makima="Limited", Rudeus="Limited", Cid="Limited", Itachi="Limited", HollowKnight="Limited", ["HollowKnight1(Igris)"]="Limited", ["HollowKnight2(Igris)"]="Limited", ["HollowKnight3(Igris)"]="Limited",
-}
-
--- ดึงรายชื่อตัวละครมาจัดเรียงตามตัวอักษรสำหรับ UI
-local CharNamesList = {}
-for name in pairs(CharRarity) do table.insert(CharNamesList, name) end
-table.sort(CharNamesList)
-
-local function GetRarity(name) return CharRarity[name] or "Unknown" end
-
--- ==========================================
--- 📦 State & Settings
--- ==========================================
-local TraderSettings = {
-    AutoBuyEnabled=false, MaxConcurrentItems=4, UnitDelay=0.05,
-    TurboMode=false, SortMode="StockAsc", RecheckInterval=2,
-}
-local ItemEnabled, ItemListCache = {}, {}
-local TraderBought, TraderSpent, ActiveBuyThreads = 0, 0, 0
-local isBuyingTrader = false
-
+-- ------------------------------------------
+-- ⚙️ ตั้งค่าระบบ (ปรับแต่งตามต้องการ)
+-- ------------------------------------------
 local RollSettings = {
-    AutoRoll=false, BuyAllMatches=true, MaxBuysPerRoll=15,
-    WalkWaitTime = 3.0,
+    AutoRoll = false,          -- เปิด/ปิด สุ่มอัตโนมัติ (ปรับใน UI ได้)
+    MaxBuysPerRoll = 3,        -- ซื้อได้สูงสุดกี่ตัวต่อการสุ่ม 1 ครั้ง
+    BuyAllMatches = true,      -- ซื้อทุกตัวที่ตรงเงื่อนไข (ถ้า false จะซื้อแค่ตัวแรกที่พบ)
+    WalkWaitTime = 0.5         -- หน่วงเวลารอระหว่างรอบ
 }
 
-local MasterMutationList = {"None","Gold","Diamond","Demon","Destroyer","Hollow","Slayer","Cursed","Parasite","Astronaut"}
-local CharacterEnabled, MutationEnabled = {}, {}
-
--- เปิดใช้งานทั้งหมดเป็นค่าเริ่มต้น
-for name in pairs(CharRarity) do CharacterEnabled[name] = true end
-for _, mut in ipairs(MasterMutationList) do MutationEnabled[mut] = true end
-
-local RollCount, RollBought = 0, 0
+local RollCount = 0
+local RollBought = 0
 local isWaitingWalk = false
 
-local AFKSettings = { Enabled=true, ProactiveInterval=90 }
-local lastAFKAction = os.clock()
+-- 🎯 รายชื่อตัวละครที่ต้องการให้ซื้ออัตโนมัติ (ใส่ชื่อ = true)
+local CharacterEnabled = {
+    ["Shinra"] = true,
+    ["Itadori"] = true,
+    ["Saitama"] = true,
+    ["Goku"] = true,
+    ["Naruto"] = true,
+}
 
-local PurchaseLog = {}
-local function AddLog(text, color)
-    table.insert(PurchaseLog, 1, {Text=text, Color=color or Color3.fromRGB(150,255,150)})
-    if #PurchaseLog > 40 then table.remove(PurchaseLog, #PurchaseLog) end
+-- 🧬 รายชื่อ Mutation ที่ต้องการซื้อ
+local MutationEnabled = {
+    ["None"] = true,
+    ["Shiny"] = true,
+    ["Golden"] = true,
+    ["Shadow"] = true,
+}
+
+-- 🎨 ข้อมูล Rarity สำหรับแสดงผล Log
+local RarityData = {
+    ["Common"] = { color = Color3.fromRGB(180, 180, 180), icon = "⚪" },
+    ["Rare"] = { color = Color3.fromRGB(50, 150, 255), icon = "🔵" },
+    ["Epic"] = { color = Color3.fromRGB(170, 0, 255), icon = "🟣" },
+    ["Legendary"] = { color = Color3.fromRGB(255, 170, 0), icon = "🟡" },
+    ["Mythic"] = { color = Color3.fromRGB(255, 50, 80), icon = "🔴" },
+    ["Secret"] = { color = Color3.fromRGB(0, 255, 200), icon = "✨" },
+    ["God"] = { color = Color3.fromRGB(255, 215, 0), icon = "👑" }
+}
+
+-- ------------------------------------------
+-- 🔌 ค้นหา Remote ของเกม
+-- ------------------------------------------
+local RollRemote, BuyRollRemote
+
+for _, desc in ipairs(ReplicatedStorage:GetDescendants()) do
+    if desc:IsA("RemoteEvent") and desc.Name == "Roll" then
+        RollRemote = desc
+        if desc.Parent then 
+            BuyRollRemote = desc.Parent:FindFirstChild("Buy") 
+        end
+        break
+    end
 end
 
--- ==========================================
--- 🛡️ Anti-AFK
--- ==========================================
-local function PreventAFK()
-    lastAFKAction = os.clock()
-    pcall(function()
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Slash, false, game)
-        task.wait(0.05)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Slash, false, game)
-        task.wait(0.15)
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
-        task.wait(0.05)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
-    end)
-end
-LocalPlayer.Idled:Connect(function() if AFKSettings.Enabled then PreventAFK() end end)
-task.spawn(function()
-    while true do
-        task.wait(AFKSettings.ProactiveInterval)
-        if AFKSettings.Enabled then PreventAFK() end
+local RollAvailable = (RollRemote ~= nil and BuyRollRemote ~= nil)
+
+-- ------------------------------------------
+-- 🖥️ ระบบสร้างหน้าต่าง UI Log ในเกม
+-- ------------------------------------------
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AutoRollGui"
+ScreenGui.ResetOnSpawn = false
+
+pcall(function()
+    if gethui then
+        ScreenGui.Parent = gethui()
+    elseif syn and syn.protect_gui then
+        syn.protect_gui(ScreenGui)
+        ScreenGui.Parent = game:GetService("CoreGui")
+    else
+        ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
 end)
 
--- ==========================================
--- 💾 Save/Load
--- ==========================================
-local function SaveSettings()
-    if not HasFileSystem then return end
-    pcall(function()
-        writefile(SaveFileName, HttpService:JSONEncode({
-            ItemEnabled=ItemEnabled, CharacterEnabled=CharacterEnabled,
-            MutationEnabled=MutationEnabled,
-            TraderSortMode=TraderSettings.SortMode, TraderTurbo=TraderSettings.TurboMode,
-            TraderMaxConcurrent=TraderSettings.MaxConcurrentItems,
-            RollBuyAll=RollSettings.BuyAllMatches,
-            WalkWaitTime=RollSettings.WalkWaitTime,
-            AFKEnabled=AFKSettings.Enabled,
-        }))
-    end)
-end
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 320, 0, 240)
+Frame.Position = UDim2.new(0, 20, 0.4, 0)
+Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+Frame.BorderSizePixel = 0
+Frame.Active = true
+Frame.Draggable = true
+Frame.Parent = ScreenGui
 
-local function LoadSettings()
-    if not HasFileSystem then return end
-    local ok, data = pcall(function()
-        if isfile(SaveFileName) then return HttpService:JSONDecode(readfile(SaveFileName)) end
-    end)
-    if ok and data then
-        if data.ItemEnabled then for k,v in pairs(data.ItemEnabled) do ItemEnabled[k]=v end end
-        if data.CharacterEnabled then for k,v in pairs(data.CharacterEnabled) do CharacterEnabled[k]=v end end
-        if data.MutationEnabled then for k,v in pairs(data.MutationEnabled) do MutationEnabled[k]=v end end
-        if data.TraderSortMode then TraderSettings.SortMode=data.TraderSortMode end
-        if data.TraderTurbo~=nil then TraderSettings.TurboMode=data.TraderTurbo end
-        if data.TraderMaxConcurrent then TraderSettings.MaxConcurrentItems=data.TraderMaxConcurrent end
-        if data.RollBuyAll~=nil then RollSettings.BuyAllMatches=data.RollBuyAll end
-        if data.WalkWaitTime then RollSettings.WalkWaitTime=data.WalkWaitTime end
-        if data.AFKEnabled~=nil then AFKSettings.Enabled=data.AFKEnabled end
+local UICorner = Instance.new("UICorner", Frame)
+UICorner.CornerRadius = UDim.new(0, 8)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 35)
+Title.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
+Title.Text = "  🎲 Auto Roll System"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 16
+Title.Parent = Frame
+Instance.new("UICorner", Title)
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Size = UDim2.new(0, 95, 0, 25)
+ToggleBtn.Position = UDim2.new(1, -105, 0, 5)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+ToggleBtn.Text = "Auto Roll: OFF"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.Font = Enum.Font.SourceSansBold
+ToggleBtn.TextSize = 12
+ToggleBtn.Parent = Title
+Instance.new("UICorner", ToggleBtn)
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    RollSettings.AutoRoll = not RollSettings.AutoRoll
+    if RollSettings.AutoRoll then
+        ToggleBtn.Text = "Auto Roll: ON"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+    else
+        ToggleBtn.Text = "Auto Roll: OFF"
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
     end
-end
-LoadSettings()
+end)
 
--- ==========================================
--- 🔌 Remote Detection
--- ==========================================
-local RemotesFolder = SafeWaitForChild(ReplicatedStorage, "Remotes", 5)
+local LogScroll = Instance.new("ScrollingFrame")
+LogScroll.Size = UDim2.new(1, -16, 1, -50)
+LogScroll.Position = UDim2.new(0, 8, 0, 42)
+LogScroll.BackgroundTransparency = 1
+LogScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+LogScroll.ScrollBarThickness = 4
+LogScroll.Parent = Frame
 
-local TraderAvailable, GetStock, BuyTraderRemote = false, nil, nil
-if RemotesFolder then
-    local tf = SafeWaitForChild(RemotesFolder, "Trader", 3)
-    if tf then
-        GetStock = SafeWaitForChild(tf, "GetStock", 3)
-        BuyTraderRemote = SafeWaitForChild(tf, "Buy", 3)
-        TraderAvailable = GetStock~=nil and BuyTraderRemote~=nil
-    end
-end
+local UIList = Instance.new("UIListLayout")
+UIList.Parent = LogScroll
+UIList.SortOrder = Enum.SortOrder.LayoutOrder
+UIList.Padding = UDim.new(0, 3)
 
-local RollAvailable, RollRemote, BuyRollRemote = false, nil, nil
-if RemotesFolder then
-    local cf = SafeWaitForChild(RemotesFolder, "Characters", 3)
-    if cf then
-        RollRemote = SafeWaitForChild(cf, "Roll", 3)
-        BuyRollRemote = SafeWaitForChild(cf, "Buy", 3)
-        RollAvailable = RollRemote~=nil and BuyRollRemote~=nil
-    end
-end
+UIList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    LogScroll.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y)
+    LogScroll.CanvasPosition = Vector2.new(0, UIList.AbsoluteContentSize.Y)
+end)
 
--- ==========================================
--- 🎯 ค้นหาและกดปุ่มสุ่มในเกม (อ้างอิงจากโครงสร้าง image_02e949)
--- ==========================================
-local function TriggerInGameRollButton()
-    local rollFolder = workspace:FindFirstChild("Roll")
-    if not rollFolder then return false end
-    
-    local rollBtnModel = rollFolder:FindFirstChild("RollButton")
-    if not rollBtnModel then return false end
-    
-    local buttonPart = rollBtnModel:FindFirstChild("Button")
-    if not buttonPart then return false end
-    
-    local prompt = buttonPart:FindFirstChild("RollPrompt")
-    local clickDet = buttonPart:FindFirstChildWhichIsA("ClickDetector")
-    
-    -- จำลองการกดปุ่ม E หากพบ ProximityPrompt
-    if prompt and fireproximityprompt then
-        pcall(function() fireproximityprompt(prompt) end)
-        return true
-    -- จำลองการคลิก หากเจอ ClickDetector (สำรอง)
-    elseif clickDet and fireclickdetector then
-        pcall(function() fireclickdetector(clickDet) end)
-        return true
-    end
-    
-    return false
+local function AddLog(msg, color)
+    print("[AutoRoll] " .. msg)
+    local LogLabel = Instance.new("TextLabel")
+    LogLabel.Size = UDim2.new(1, 0, 0, 18)
+    LogLabel.BackgroundTransparency = 1
+    LogLabel.Text = " " .. msg
+    LogLabel.TextColor3 = color or Color3.fromRGB(255, 255, 255)
+    LogLabel.TextXAlignment = Enum.TextXAlignment.Left
+    LogLabel.Font = Enum.Font.SourceSans
+    LogLabel.TextSize = 14
+    LogLabel.Parent = LogScroll
 end
 
--- ==========================================
--- 🎲 Roll Logic
--- ==========================================
-local function CheckCharacter(name) return CharacterEnabled[name]==true end
+-- ------------------------------------------
+-- 🎯 ฟังก์ชันตรวจสอบเงื่อนไข
+-- ------------------------------------------
+local function CheckCharacter(name)
+    if not next(CharacterEnabled) then return true end
+    return CharacterEnabled[name] == true
+end
+
 local function CheckMutation(mut)
-    local m = (mut=="" or not mut) and "None" or mut
-    return MutationEnabled[m]==true
+    local m = (mut == "" or not mut) and "None" or mut
+    if not next(MutationEnabled) then return true end
+    return MutationEnabled[m] == true
 end
 
+-- ------------------------------------------
+-- 🎲 รับข้อมูลจาก Server & ส่งคำสั่งซื้อ
+-- ------------------------------------------
 if RollAvailable then
-    -- ยังคงใช้ Remote.OnClientEvent เพื่อรับรู้ว่าสุ่มได้ตัวอะไรและส่งคำสั่งซื้อแบบรวดเร็ว
-    RollRemote.OnClientEvent:Connect(function(player, base, rollData, unk, rollId)
-        if player~=LocalPlayer or not rollData then return end
+    AddLog("✅ สคริปต์พร้อมใช้งาน! เชื่อมต่อ Remote สำเร็จ", Color3.fromRGB(100, 255, 100))
+    
+    -- รับโครงสร้างจริง: (player, statue, rolledCharacters, rollId, ...)
+    RollRemote.OnClientEvent:Connect(function(player, statue, rolledCharacters, rollId, ...)
+        if type(rolledCharacters) ~= "table" then return end
 
         local boughtThisRoll = 0
-        for slotIndex, charInfo in pairs(rollData) do
+        
+        for slotIndex, charInfo in pairs(rolledCharacters) do
+            if type(charInfo) ~= "table" then continue end
+            
             if boughtThisRoll >= RollSettings.MaxBuysPerRoll then break end
             if not RollSettings.BuyAllMatches and boughtThisRoll >= 1 then break end
-            local name = charInfo.Name or "Unknown"
-            local mut = charInfo.Mutation or ""
             
+            local name = charInfo.Name or charInfo.DisplayName or "Unknown"
+            local mut = charInfo.Mutation or ""
+            local rarityStr = charInfo.Rarity or "Unknown"
+            
+            -- ตรวจสอบว่าตรงกับรายชื่อที่เราเปิดให้ซื้อหรือไม่
             if CheckCharacter(name) and CheckMutation(mut) then
-                local ok = pcall(function() BuyRollRemote:FireServer(rollId, slotIndex) end)
-                if ok then
-                    boughtThisRoll = boughtThisRoll + 1
-                    RollBought = RollBought + 1
-                    local rarity = GetRarity(name)
-                    local rarInfo = RarityData[rarity] or {}
-                    AddLog(string.format("%s %s [%s] — %s",
-                        rarInfo.icon or "?", name,
-                        mut~="" and mut or "None", rarity),
-                        rarInfo.color or Color3.new(1,1,1))
-                end
+                boughtThisRoll = boughtThisRoll + 1
+                RollBought = RollBought + 1
+                
+                -- หน่วงเวลา 0.5 วินาที แล้วยิงคำสั่งซื้อ
+                task.delay(0.5, function()
+                    local ok = pcall(function() 
+                        BuyRollRemote:FireServer(rollId, slotIndex) 
+                    end)
+                    
+                    if ok then
+                        local rarInfo = RarityData[rarityStr] or {}
+                        AddLog(string.format("%s ได้รับ: %s [%s] (%s)",
+                            rarInfo.icon or "🔹", name,
+                            mut ~= "" and mut or "None", rarityStr),
+                            rarInfo.color or Color3.fromRGB(255, 255, 255))
+                    end
+                end)
             end
         end
 
@@ -250,274 +221,22 @@ if RollAvailable then
         task.wait(RollSettings.WalkWaitTime)
         isWaitingWalk = false
     end)
+else
+    AddLog("❌ ไม่พบ Remote ตู้สุ่ม", Color3.fromRGB(255, 80, 80))
 end
 
--- ลูปกดปุ่มสุ่มรัวๆ
+-- ------------------------------------------
+-- 🔄 ลูปสั่งสุ่มอัตโนมัติ
+-- ------------------------------------------
 task.spawn(function()
     while true do
-        task.wait(0.1)
-        if RollSettings.AutoRoll and not isWaitingWalk then
-            local triggered = TriggerInGameRollButton()
-            if triggered then
-                RollCount = RollCount + 1
-                task.wait(1.5) -- หน่วงเวลาสักนิดหลังกด E สำเร็จเพื่อรอเกมตอบสนอง
-            else
-                task.wait(1)
-            end
-        end
-    end
-end)
-
--- ==========================================
--- 🛒 Trader Logic (คงเดิม)
--- ==========================================
-local function SortTraderItems(items)
-    local sorted = {}
-    for _, it in ipairs(items) do table.insert(sorted, it) end
-    if TraderSettings.SortMode=="StockAsc" then
-        table.sort(sorted, function(a,b) return (a.Stock or 0)<(b.Stock or 0) end)
-    elseif TraderSettings.SortMode=="PriceDesc" then
-        table.sort(sorted, function(a,b) return (a.Price or 0)>(b.Price or 0) end)
-    end
-    return sorted
-end
-
-local function BuyItemUnits(item)
-    while ActiveBuyThreads >= TraderSettings.MaxConcurrentItems do
-        task.wait(0.03)
-        if not TraderSettings.AutoBuyEnabled then return end
-    end
-    ActiveBuyThreads = ActiveBuyThreads + 1
-    local bought = 0
-    local delay = TraderSettings.TurboMode and 0 or TraderSettings.UnitDelay
-    for i = 1, (item.Stock or 0) do
-        if not TraderSettings.AutoBuyEnabled then break end
-        local ok = pcall(function() BuyTraderRemote:FireServer(item.Name) end)
-        if ok then
-            bought = bought + 1
-            TraderBought = TraderBought + 1
-            if item.Price then TraderSpent = TraderSpent + item.Price end
-        end
-        if delay > 0 then task.wait(delay) end
-    end
-    if bought > 0 then AddLog(string.format("🛒 %s x%d", item.Name, bought), Color3.fromRGB(100,255,100)) end
-    ActiveBuyThreads = ActiveBuyThreads - 1
-end
-
-local function AutoBuyItems()
-    if not TraderAvailable or isBuyingTrader or not TraderSettings.AutoBuyEnabled then return end
-    isBuyingTrader = true
-    local ok, stockData = pcall(function() return GetStock:InvokeServer() end)
-    if ok and stockData and stockData.Items then
-        ItemListCache = stockData.Items
-        for _, item in ipairs(stockData.Items) do
-            if ItemEnabled[item.Name]==nil then ItemEnabled[item.Name]=true end
-        end
-        for _, item in ipairs(SortTraderItems(stockData.Items)) do
-            if not TraderSettings.AutoBuyEnabled then break end
-            if ItemEnabled[item.Name]~=false and item.Stock and item.Stock>0 then
-                task.spawn(BuyItemUnits, item)
-            end
-        end
-    else
-        AddLog("⚠️ ดึง Stock ไม่สำเร็จ", Color3.fromRGB(255,150,50))
-    end
-    isBuyingTrader = false
-end
-
-if TraderAvailable then
-    workspace:GetAttributeChangedSignal("TraderEventActive"):Connect(function()
-        if workspace:GetAttribute("TraderEventActive")==true and TraderSettings.AutoBuyEnabled then
-            task.spawn(function()
-                task.wait(1)
-                while workspace:GetAttribute("TraderEventActive")==true and TraderSettings.AutoBuyEnabled do
-                    AutoBuyItems()
-                    task.wait(TraderSettings.RecheckInterval)
-                end
+        task.wait(0.5)
+        if RollSettings.AutoRoll and RollAvailable and not isWaitingWalk then
+            RollCount = RollCount + 1
+            pcall(function() 
+                RollRemote:FireServer() 
             end)
-        end
-    end)
-end
-
--- ==========================================
--- 🎨 Part 2 - UI Setup & Integration (Rayfield)
--- ==========================================
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-
-local Window = Rayfield:CreateWindow({
-    Name = "ProHub v2.1 🎮",
-    LoadingTitle = "ProHub v2.1",
-    LoadingSubtitle = "Auto-Trader & Fixed Roll",
-    ConfigurationSaving = { Enabled = false },
-    KeySystem = false
-})
-
--- 🎲 TAB: Auto Roll
-local TabRoll = Window:CreateTab("Auto Roll", 4483362458)
-local RollStatsLabel = TabRoll:CreateLabel("Rolls: 0 | Bought: 0 | Status: Idle")
-
-TabRoll:CreateToggle({
-    Name = "Enable Auto Roll (In-Game Button)",
-    CurrentValue = RollSettings.AutoRoll,
-    Flag = "AutoRollToggle",
-    Callback = function(Value)
-        RollSettings.AutoRoll = Value
-        SaveSettings()
-    end,
-})
-
-TabRoll:CreateSlider({
-    Name = "Walk Wait Time (Seconds)",
-    Range = {0, 10},
-    Increment = 0.5,
-    CurrentValue = RollSettings.WalkWaitTime,
-    Flag = "WalkWaitTimeSlider",
-    Callback = function(Value)
-        RollSettings.WalkWaitTime = Value
-        SaveSettings()
-    end,
-})
-
-TabRoll:CreateToggle({
-    Name = "Buy All Matches Per Roll",
-    CurrentValue = RollSettings.BuyAllMatches,
-    Flag = "BuyAllToggle",
-    Callback = function(Value)
-        RollSettings.BuyAllMatches = Value
-        SaveSettings()
-    end,
-})
-
-TabRoll:CreateSection("Filters (Characters & Mutations)")
-
--- ดึงค่า Character ที่เปิดอยู่เพื่อแสดงใน Dropdown
-local activeChars = {}
-for _, name in ipairs(CharNamesList) do
-    if CharacterEnabled[name] then table.insert(activeChars, name) end
-end
-
-TabRoll:CreateDropdown({
-    Name = "Select Characters",
-    Options = CharNamesList,
-    CurrentOption = activeChars,
-    MultipleOptions = true,
-    Flag = "CharacterDrop",
-    Callback = function(Selected)
-        for _, name in ipairs(CharNamesList) do CharacterEnabled[name] = false end
-        for _, name in ipairs(Selected) do CharacterEnabled[name] = true end
-        SaveSettings()
-    end,
-})
-
-local activeMutations = {}
-for _, m in ipairs(MasterMutationList) do
-    if MutationEnabled[m] then table.insert(activeMutations, m) end
-end
-
-TabRoll:CreateDropdown({
-    Name = "Select Mutations",
-    Options = MasterMutationList,
-    CurrentOption = activeMutations,
-    MultipleOptions = true,
-    Flag = "MutationDrop",
-    Callback = function(Selected)
-        for _, m in ipairs(MasterMutationList) do MutationEnabled[m] = false end
-        for _, m in ipairs(Selected) do MutationEnabled[m] = true end
-        SaveSettings()
-    end,
-})
-
--- 🛒 TAB: Auto Trader
-local TabTrader = Window:CreateTab("Auto Trader", 4483362458)
-local TraderStatsLabel = TabTrader:CreateLabel("Bought: 0 | Spent: 0")
-
-TabTrader:CreateToggle({
-    Name = "Enable Auto Buy (Trader)",
-    CurrentValue = TraderSettings.AutoBuyEnabled,
-    Flag = "AutoBuyToggle",
-    Callback = function(Value)
-        TraderSettings.AutoBuyEnabled = Value
-        SaveSettings()
-        if Value then task.spawn(AutoBuyItems) end
-    end,
-})
-
-TabTrader:CreateSlider({
-    Name = "Max Concurrent Items",
-    Range = {1, 10},
-    Increment = 1,
-    CurrentValue = TraderSettings.MaxConcurrentItems,
-    Flag = "MaxConcurrentSlider",
-    Callback = function(Value)
-        TraderSettings.MaxConcurrentItems = Value
-        SaveSettings()
-    end,
-})
-
-TabTrader:CreateSlider({
-    Name = "Unit Delay (Seconds)",
-    Range = {0, 1},
-    Increment = 0.01,
-    CurrentValue = TraderSettings.UnitDelay,
-    Flag = "UnitDelaySlider",
-    Callback = function(Value)
-        TraderSettings.UnitDelay = Value
-        SaveSettings()
-    end,
-})
-
-TabTrader:CreateToggle({
-    Name = "Turbo Mode (No Delay)",
-    CurrentValue = TraderSettings.TurboMode,
-    Flag = "TurboToggle",
-    Callback = function(Value)
-        TraderSettings.TurboMode = Value
-        SaveSettings()
-    end,
-})
-
-TabTrader:CreateDropdown({
-    Name = "Sort Mode",
-    Options = {"StockAsc", "PriceDesc"},
-    CurrentOption = {TraderSettings.SortMode},
-    MultipleOptions = false,
-    Flag = "SortModeDrop",
-    Callback = function(Selected)
-        TraderSettings.SortMode = Selected[1]
-        SaveSettings()
-    end,
-})
-
--- ⚙️ TAB: Settings & Logs
-local TabMisc = Window:CreateTab("Settings", 4483362458)
-
-TabMisc:CreateToggle({
-    Name = "Anti-AFK",
-    CurrentValue = AFKSettings.Enabled,
-    Flag = "AFKToggle",
-    Callback = function(Value)
-        AFKSettings.Enabled = Value
-        SaveSettings()
-    end,
-})
-
-local LogLabel = TabMisc:CreateLabel("--- Purchase Logs ---")
-
--- ==========================================
--- 🔄 Update Loop UI Status & Logs
--- ==========================================
-task.spawn(function()
-    while task.wait(0.5) do
-        local walkStatus = isWaitingWalk and "Waiting Walk Anim..." or "Idle"
-        RollStatsLabel:Set("Rolls: " .. RollCount .. " | Bought: " .. RollBought .. " | Status: " .. walkStatus)
-        TraderStatsLabel:Set("Bought: " .. TraderBought .. " | Spent: " .. TraderSpent)
-
-        if #PurchaseLog > 0 then
-            local logText = "--- Purchase Logs ---\n"
-            for i = 1, math.min(#PurchaseLog, 8) do
-                logText = logText .. PurchaseLog[i].Text .. "\n"
-            end
-            LogLabel:Set(logText)
+            task.wait(1.5)
         end
     end
 end)
