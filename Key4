@@ -73,6 +73,13 @@ for _, name in ipairs(MasterCharacterList) do CharacterEnabled[name] = true end
 for _, mut in ipairs(MasterMutationList) do MutationEnabled[mut] = true end
 local RollCount, RollBought = 0, 0
 local isProcessingRoll = false
+local waitingForRoll = false
+local rollGeneration = 0
+
+-- เรียนรู้ Rarity เองจากข้อมูลจริงตอนสุ่ม (ไม่ได้ใส่ตายตัวมาล่วงหน้า)
+-- จะค่อยๆ เต็มขึ้นเรื่อยๆ ตามที่บอทเจอจริงระหว่างเล่น
+local CharacterRarity = {}
+local ApplyCharacterFilters = nil -- กำหนดค่าจริงตอนสร้าง UI ด้านล่าง
 
 local AFKSettings = { Enabled = true, ProactiveInterval = 90 }
 local lastAFKAction = os.clock()
@@ -114,6 +121,7 @@ local function SaveSettings()
     pcall(function()
         writefile(SaveFileName, HttpService:JSONEncode({
             ItemEnabled = ItemEnabled, CharacterEnabled = CharacterEnabled, MutationEnabled = MutationEnabled,
+            CharacterRarity = CharacterRarity,
             TraderSortMode = TraderSettings.SortMode, TraderTurbo = TraderSettings.TurboMode,
             TraderMaxConcurrent = TraderSettings.MaxConcurrentItems,
             RollDelay = RollSettings.RollDelay, RollTurbo = RollSettings.TurboMode, RollBuyAll = RollSettings.BuyAllMatches,
@@ -132,6 +140,7 @@ local function LoadSettings()
         if data.ItemEnabled then for k,v in pairs(data.ItemEnabled) do ItemEnabled[k]=v end end
         if data.CharacterEnabled then for k,v in pairs(data.CharacterEnabled) do CharacterEnabled[k]=v end end
         if data.MutationEnabled then for k,v in pairs(data.MutationEnabled) do MutationEnabled[k]=v end end
+        if data.CharacterRarity then for k,v in pairs(data.CharacterRarity) do CharacterRarity[k]=v end end
         if data.TraderSortMode then TraderSettings.SortMode = data.TraderSortMode end
         if data.TraderTurbo ~= nil then TraderSettings.TurboMode = data.TraderTurbo end
         if data.TraderMaxConcurrent then TraderSettings.MaxConcurrentItems = data.TraderMaxConcurrent end
@@ -275,6 +284,19 @@ if RollAvailable then
         if player ~= LocalPlayer or not rollData then return end
         if isProcessingRoll then return end
         isProcessingRoll = true
+
+        -- 1) เรียนรู้ Rarity จากข้อมูลจริงที่เกมส่งมา (ทุกช่อง ไม่ว่าจะซื้อหรือไม่)
+        local sawNewRarity = false
+        for _, charInfo in pairs(rollData) do
+            local name = charInfo.Name or "Unknown"
+            local observedRarity = charInfo.Rarity or charInfo.RarityName or charInfo.Tier
+            if observedRarity and CharacterRarity[name] ~= observedRarity then
+                CharacterRarity[name] = observedRarity
+                sawNewRarity = true
+            end
+        end
+
+        -- 2) ซื้อตามเงื่อนไขที่ตั้งไว้
         local boughtThisRoll = 0
         for slotIndex, charInfo in pairs(rollData) do
             if boughtThisRoll >= RollSettings.MaxBuysPerRoll then break end
@@ -291,16 +313,40 @@ if RollAvailable then
                 end
             end
         end
+
         isProcessingRoll = false
+
+        if sawNewRarity then
+            SaveSettings()
+            if ApplyCharacterFilters then ApplyCharacterFilters() end
+        end
+
+        -- รอให้ตัวละครเดินไปถึงจุดซื้อก่อน ค่อยปลดล็อกให้สุ่มรอบใหม่
+        -- (ระหว่างนี้ยังกดซื้อได้ปกติ แค่บอทจะไม่ยิงสุ่มใหม่ซ้อนเข้ามา)
+        task.spawn(function()
+            task.wait(RollSettings.RollDelay)
+            waitingForRoll = false
+        end)
     end)
 end
 
 task.spawn(function()
     while true do
-        task.wait(RollSettings.TurboMode and 0.05 or RollSettings.RollDelay)
-        if RollSettings.AutoRoll and RollAvailable then
+        task.wait(0.15)
+        if RollSettings.AutoRoll and RollAvailable and not waitingForRoll then
+            waitingForRoll = true
+            rollGeneration = rollGeneration + 1
+            local myGen = rollGeneration
             RollCount = RollCount + 1
             pcall(function() RollRemote:FireServer() end)
+
+            -- กันค้าง: ถ้าเซิร์ฟเวอร์ไม่ตอบกลับเลยภายในเวลานี้ ปลดล็อกเองกันบอทหยุดถาวร
+            task.spawn(function()
+                task.wait(8)
+                if waitingForRoll and rollGeneration == myGen then
+                    waitingForRoll = false
+                end
+            end)
         end
     end
 end)
@@ -583,7 +629,7 @@ NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, BuyAllButton)
 NewInstance("UIPadding",{PaddingLeft=UDim.new(0,3),PaddingRight=UDim.new(0,3)}, BuyAllButton)
 
 local RollSpeedLabel = NewInstance("TextLabel", {
-    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="⚡ ความไว Roll: 0.6s",
+    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="⚡ รอหลังสุ่มเสร็จก่อนสุ่มใหม่: 0.6s",
     TextColor3=Color3.fromRGB(220,220,220), Font=Enum.Font.Gotham, TextSize=11,
     TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=6,
 }, Panels.Roll)
@@ -592,18 +638,24 @@ local RollSpeedSliderBG = NewInstance("Frame", {
 }, Panels.Roll)
 NewInstance("UICorner",{CornerRadius=UDim.new(1,0)}, RollSpeedSliderBG)
 local RollSpeedFill = NewInstance("Frame", {
-    Size=UDim2.new(0.26,0,1,0), BackgroundColor3=Color3.fromRGB(100,150,255),
+    Size=UDim2.new(0.17,0,1,0), BackgroundColor3=Color3.fromRGB(100,150,255),
 }, RollSpeedSliderBG)
 NewInstance("UICorner",{CornerRadius=UDim.new(1,0)}, RollSpeedFill)
+NewInstance("TextLabel", {
+    Size=UDim2.new(1,0,0,26), BackgroundTransparency=1,
+    Text="💡 ถ้ายังเห็นบอทสุ่มก่อนตัวเดินถึง ให้ลาก Slider นี้ให้นานขึ้น",
+    TextColor3=Color3.fromRGB(140,140,150), Font=Enum.Font.Gotham, TextSize=10, TextWrapped=true,
+    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=8,
+}, Panels.Roll)
 
 NewInstance("TextLabel", {
     Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="✨ Mutation ที่ต้องการ (แตะเพื่อเปิด/ปิด):",
     TextColor3=Color3.fromRGB(220,220,220), Font=Enum.Font.GothamBold, TextSize=11,
-    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=8,
+    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=9,
 }, Panels.Roll)
 
 local MutationGrid = NewInstance("Frame", {
-    Size=UDim2.new(1,0,0,0), BackgroundTransparency=1, AutomaticSize=Enum.AutomaticSize.Y, LayoutOrder=9,
+    Size=UDim2.new(1,0,0,0), BackgroundTransparency=1, AutomaticSize=Enum.AutomaticSize.Y, LayoutOrder=10,
 }, Panels.Roll)
 NewInstance("UIGridLayout", {
     CellSize=UDim2.new(0,86,0,26), CellPadding=UDim2.new(0,4,0,4), SortOrder=Enum.SortOrder.LayoutOrder,
@@ -626,16 +678,47 @@ for i, mut in ipairs(MasterMutationList) do
     MutButtons[mut] = btn
 end
 
+NewInstance("TextLabel", {
+    Size=UDim2.new(1,0,0,16), BackgroundTransparency=1, Text="🏷️ กรองตาม Rarity (เรียนรู้เองจากการสุ่มจริง ค่อยๆ เต็มขึ้น):",
+    TextColor3=Color3.fromRGB(220,220,220), Font=Enum.Font.GothamBold, TextSize=11,
+    TextXAlignment=Enum.TextXAlignment.Left, LayoutOrder=11,
+}, Panels.Roll)
+
+local RarityList = {"All","Common","Rare","Epic","Legendary","Mythic","Secret","God","Limited","Unknown"}
+local RarityColors = {
+    All=Color3.fromRGB(90,90,110), Common=Color3.fromRGB(60,140,70), Rare=Color3.fromRGB(50,110,190),
+    Epic=Color3.fromRGB(130,70,190), Legendary=Color3.fromRGB(200,140,40), Mythic=Color3.fromRGB(190,50,90),
+    Secret=Color3.fromRGB(80,40,110), God=Color3.fromRGB(190,180,90), Limited=Color3.fromRGB(40,160,160),
+    Unknown=Color3.fromRGB(70,70,80),
+}
+local RarityTabsGrid = NewInstance("Frame", {
+    Size=UDim2.new(1,0,0,0), BackgroundTransparency=1, AutomaticSize=Enum.AutomaticSize.Y, LayoutOrder=12,
+}, Panels.Roll)
+NewInstance("UIGridLayout", {
+    CellSize=UDim2.new(0,78,0,24), CellPadding=UDim2.new(0,4,0,4), SortOrder=Enum.SortOrder.LayoutOrder,
+}, RarityTabsGrid)
+local selectedRarityTab = "All"
+local RarityTabButtons = {}
+for i, rarity in ipairs(RarityList) do
+    local btn = NewInstance("TextButton", {
+        Text = rarity, TextColor3 = (rarity == "All") and Color3.fromRGB(20,20,20) or Color3.new(1,1,1),
+        Font=Enum.Font.GothamBold, TextSize=10, LayoutOrder=i,
+        BackgroundColor3 = (rarity == "All") and Color3.new(1,1,1) or (RarityColors[rarity] or Color3.fromRGB(60,60,75)),
+    }, RarityTabsGrid)
+    NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, btn)
+    RarityTabButtons[rarity] = btn
+end
+
 local SearchBox = NewInstance("TextBox", {
     Size=UDim2.new(1,0,0,28), BackgroundColor3=Color3.fromRGB(40,40,50), Text="",
     PlaceholderText="🔍 ค้นหาตัวละคร...", TextColor3=Color3.new(1,1,1),
     PlaceholderColor3=Color3.fromRGB(150,150,150), Font=Enum.Font.Gotham, TextSize=12,
-    ClearTextOnFocus=false, LayoutOrder=10,
+    ClearTextOnFocus=false, LayoutOrder=13,
 }, Panels.Roll)
 NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, SearchBox)
 NewInstance("UIPadding",{PaddingLeft=UDim.new(0,8)}, SearchBox)
 
-local CharSelectRow = NewInstance("Frame", {Size=UDim2.new(1,0,0,26), BackgroundTransparency=1, LayoutOrder=11}, Panels.Roll)
+local CharSelectRow = NewInstance("Frame", {Size=UDim2.new(1,0,0,26), BackgroundTransparency=1, LayoutOrder=14}, Panels.Roll)
 local SelectAllButton = NewInstance("TextButton", {
     Size=UDim2.new(0.49,0,1,0), BackgroundColor3=Color3.fromRGB(50,150,90), Text="✅ เลือกทั้งหมด",
     TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=11,
@@ -649,7 +732,7 @@ NewInstance("UICorner",{CornerRadius=UDim.new(0,6)}, DeselectAllButton)
 
 local CharListContainer = NewInstance("ScrollingFrame", {
     Size=UDim2.new(1,0,0,200), BackgroundColor3=Color3.fromRGB(24,24,30), BorderSizePixel=0,
-    ScrollBarThickness=4, CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, LayoutOrder=12,
+    ScrollBarThickness=4, CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, LayoutOrder=15,
 }, Panels.Roll)
 NewInstance("UICorner",{CornerRadius=UDim.new(0,8)}, CharListContainer)
 NewInstance("UIListLayout",{Padding=UDim.new(0,2), SortOrder=Enum.SortOrder.LayoutOrder}, CharListContainer)
@@ -658,10 +741,15 @@ local CharButtons = {}
 local function StyleToggle(btn, enabled)
     btn.BackgroundColor3 = enabled and Color3.fromRGB(40,70,45) or Color3.fromRGB(60,40,40)
 end
+local function GetCharDisplayText(name)
+    local rarity = CharacterRarity[name]
+    local tag = rarity and (" ["..rarity.."]") or ""
+    return (CharacterEnabled[name] and "✅ " or "❌ ")..name..tag
+end
 local function BuildCharList()
     for i, name in ipairs(MasterCharacterList) do
         local btn = NewInstance("TextButton", {
-            Size=UDim2.new(1,-6,0,24), Text=(CharacterEnabled[name] and "✅ " or "❌ ")..name,
+            Size=UDim2.new(1,-6,0,24), Text=GetCharDisplayText(name),
             TextColor3=Color3.new(1,1,1), Font=Enum.Font.Gotham, TextSize=11,
             LayoutOrder=i, TextXAlignment=Enum.TextXAlignment.Left,
         }, CharListContainer)
@@ -670,8 +758,8 @@ local function BuildCharList()
         StyleToggle(btn, CharacterEnabled[name])
         btn.MouseButton1Click:Connect(function()
             CharacterEnabled[name] = not CharacterEnabled[name]
-            btn.Text = (CharacterEnabled[name] and "✅ " or "❌ ")..name
             StyleToggle(btn, CharacterEnabled[name])
+            if ApplyCharacterFilters then ApplyCharacterFilters() end
             SaveSettings()
         end)
         CharButtons[name] = btn
@@ -679,12 +767,31 @@ local function BuildCharList()
 end
 BuildCharList()
 
-SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+-- ฟังก์ชันกรองรวม: ค้นหาข้อความ + แท็บ Rarity ที่เลือก
+ApplyCharacterFilters = function()
     local query = string.lower(SearchBox.Text)
     for name, btn in pairs(CharButtons) do
-        btn.Visible = (query == "") or (string.find(string.lower(name), query, 1, true) ~= nil)
+        btn.Text = GetCharDisplayText(name)
+        local matchesSearch = (query == "") or (string.find(string.lower(name), query, 1, true) ~= nil)
+        local rarity = CharacterRarity[name] or "Unknown"
+        local matchesRarity = (selectedRarityTab == "All") or (rarity == selectedRarityTab)
+        btn.Visible = matchesSearch and matchesRarity
     end
-end)
+end
+
+SearchBox:GetPropertyChangedSignal("Text"):Connect(ApplyCharacterFilters)
+
+for rarity, btn in pairs(RarityTabButtons) do
+    btn.MouseButton1Click:Connect(function()
+        selectedRarityTab = rarity
+        for r, b in pairs(RarityTabButtons) do
+            local isSel = (r == rarity)
+            b.BackgroundColor3 = isSel and Color3.new(1,1,1) or (RarityColors[r] or Color3.fromRGB(60,60,75))
+            b.TextColor3 = isSel and Color3.fromRGB(20,20,20) or Color3.new(1,1,1)
+        end
+        ApplyCharacterFilters()
+    end)
+end
 
 -- ==========================================
 -- 🛡️ AFK Panel
